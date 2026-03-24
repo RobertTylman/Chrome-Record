@@ -685,9 +685,14 @@ const Popup: React.FC = () => {
       )}
 
       {activeTab !== 'recent' && (
-        <button className="buy-coffee-button" onClick={() => window.open('https://buymeacoffee.com/TheUglyAlpaca', '_blank')} title="Support the developer">
-          ☕ Buy me a coffee
-        </button>
+        <>
+          <button className="bug-report-button" onClick={() => window.open('https://docs.google.com/forms/d/e/1FAIpQLSd79vPaXs_-SwoEScobWGNgQu3aRSkc7i0IpTmNQpxuKxVrRg/viewform', '_blank')} title="Submit a bug report">
+            Report a bug 🐞
+          </button>
+          <button className="buy-coffee-button" onClick={() => window.open('https://buymeacoffee.com/TheUglyAlpaca', '_blank')} title="Support the developer">
+            Buy me a coffee ☕
+          </button>
+        </>
       )}
     </div>
   );
