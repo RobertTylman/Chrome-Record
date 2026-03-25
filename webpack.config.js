@@ -47,5 +47,8 @@ module.exports = {
       ]
     })
   ],
-  devtool: 'source-map'
+  devtool: 'source-map',
+  performance: {
+    hints: false // Chrome extensions load from disk, not network — size warnings don't apply
+  }
 };

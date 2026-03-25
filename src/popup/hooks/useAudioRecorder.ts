@@ -110,9 +110,9 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
       }
 
       // Only wait for stream release if there was a previous recording
-      // Reduced from 800ms to 400ms for faster startup
+      // Reduced from 400ms to 50ms for faster startup
       if (hadPreviousStream) {
-        await new Promise(resolve => setTimeout(resolve, 400));
+        await new Promise(resolve => setTimeout(resolve, 50));
       }
 
       // Clear any previous recording state from storage

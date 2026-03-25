@@ -219,7 +219,7 @@ async function captureTabAudio(tabId: number): Promise<void> {
 
     // Wait longer to ensure any previous stream is fully released
     // This is critical to prevent "Cannot capture a tab with an active stream" errors
-    setTimeout(() => {
+    const attemptCapture = () => {
       chrome.tabCapture.getMediaStreamId(
         { targetTabId: tabId },
         (streamId: string | undefined) => {
@@ -230,7 +230,7 @@ async function captureTabAudio(tabId: number): Promise<void> {
               // Retry with increasing delays
               let retryCount = 0;
               const maxRetries = 3;
-              const retryDelay = 800; // Start with 800ms
+              const retryDelay = 200; // Start with 200ms
 
               const retryCapture = () => {
                 setTimeout(() => {
@@ -283,7 +283,8 @@ async function captureTabAudio(tabId: number): Promise<void> {
           resolve();
         }
       );
-    }, 300); // Increased delay to ensure previous stream is released
+    };
+    attemptCapture();
   });
 }
 
@@ -318,7 +319,7 @@ async function startRecordingFromStreamId(streamId: string): Promise<void> {
   await setupOffscreenDocument('offscreen.html');
 
   // Wait a bit for offscreen to be ready
-  await new Promise(resolve => setTimeout(resolve, 500));
+  await new Promise(resolve => setTimeout(resolve, 50));
 
   return new Promise((resolve, reject) => {
     chrome.runtime.sendMessage({

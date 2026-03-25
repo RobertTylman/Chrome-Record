@@ -6,8 +6,7 @@
     "build": "webpack --mode production",
     "dev": "webpack --mode development --watch",
     "clean": "rm -rf dist",
-    "generate-icons": "node scripts/generate-icons.js",
-    "prebuild": "npm run generate-icons"
+    "generate-icons": "node scripts/generate-icons.js"
   },
   "keywords": [
     "chrome-extension",
