@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { getMimeTypeForFormat, isFormatSupported } from '../utils/formatUtils';
+import { DEFAULT_AUDIO_FORMAT, getMimeTypeForFormat, isFormatSupported } from '../utils/formatUtils';
 import { getTempData, deleteTempData } from '../utils/storageManager';
 
 interface UseAudioRecorderReturn {
@@ -90,7 +90,7 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
     try {
       // Get format preference
       const prefsResult = await chrome.storage.local.get(['preferences']);
-      const format = prefsResult.preferences?.format || 'webm';
+      const format = prefsResult.preferences?.format || DEFAULT_AUDIO_FORMAT;
       const mimeType = getMimeTypeForFormat(format);
 
       // Check if there's a previous stream that needs cleanup
@@ -292,7 +292,7 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
         if (storageResult.recordingChunks && storageResult.recordingChunks.length > 0) {
           console.log('Reading recording chunks directly from storage (fallback):', storageResult.recordingChunks.length);
           // ... legacy reconstruction logic ...
-          const format = storageResult.preferences?.format || 'webm';
+          const format = storageResult.preferences?.format || DEFAULT_AUDIO_FORMAT;
           let mimeType = 'audio/webm';
           if (format === 'ogg') mimeType = 'audio/ogg';
 

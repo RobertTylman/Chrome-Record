@@ -1,5 +1,7 @@
 // Format utilities for audio recording
 
+export const DEFAULT_AUDIO_FORMAT = 'wav';
+
 export function getMimeTypeForFormat(format: string): string {
   // Map format to MIME type
   // Note: MediaRecorder has limited format support
@@ -34,5 +36,4 @@ export function isFormatSupported(format: string): boolean {
   
   return MediaRecorder.isTypeSupported(mimeType);
 }
-
 

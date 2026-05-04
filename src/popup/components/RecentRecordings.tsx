@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import JSZip from 'jszip';
 import { convertAudioFormat } from '../utils/audioConverter';
-import { getFileExtension } from '../utils/formatUtils';
+import { DEFAULT_AUDIO_FORMAT, getFileExtension } from '../utils/formatUtils';
 import { getAllRecordingsMetadata, getRecording, deleteRecording, RecordingMetadata } from '../utils/storageManager';
 
 interface Recording extends RecordingMetadata {
@@ -137,7 +137,7 @@ export const RecentRecordings: React.FC<RecentRecordingsProps> = ({ onSelectReco
       // Always use current format preference (not the stored format)
       // This ensures all downloads use the current format setting
       const result = await chrome.storage.local.get(['preferences']);
-      const format = result.preferences?.format || 'webm';
+      const format = result.preferences?.format || DEFAULT_AUDIO_FORMAT;
       const sampleRate = result.preferences?.sampleRate ? parseInt(result.preferences.sampleRate) : undefined;
       const channelMode = result.preferences?.channelMode || undefined;
       const targetChannels = channelMode === 'mono' ? 1 : channelMode === 'stereo' ? 2 : undefined;
@@ -179,7 +179,7 @@ export const RecentRecordings: React.FC<RecentRecordingsProps> = ({ onSelectReco
 
       // Get current format preferences
       const result = await chrome.storage.local.get(['preferences']);
-      const format = result.preferences?.format || 'webm';
+      const format = result.preferences?.format || DEFAULT_AUDIO_FORMAT;
       const sampleRate = result.preferences?.sampleRate ? parseInt(result.preferences.sampleRate) : undefined;
       const channelMode = result.preferences?.channelMode || undefined;
       const targetChannels = channelMode === 'mono' ? 1 : channelMode === 'stereo' ? 2 : undefined;
@@ -408,4 +408,3 @@ export const RecentRecordings: React.FC<RecentRecordingsProps> = ({ onSelectReco
     </div>
   );
 };
-

@@ -33,12 +33,14 @@ module.exports = {
     new HtmlWebpackPlugin({
       template: './public/popup.html',
       filename: 'popup.html',
-      chunks: ['popup']
+      chunks: ['popup'],
+      minify: false
     }),
     new HtmlWebpackPlugin({
       template: './src/offscreen/offscreen.html',
       filename: 'offscreen.html',
-      chunks: ['offscreen']
+      chunks: ['offscreen'],
+      minify: false
     }),
     new CopyWebpackPlugin({
       patterns: [
@@ -50,5 +52,8 @@ module.exports = {
   devtool: 'source-map',
   performance: {
     hints: false // Chrome extensions load from disk, not network — size warnings don't apply
+  },
+  optimization: {
+    minimize: false
   }
 };

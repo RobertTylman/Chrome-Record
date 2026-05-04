@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { useAudioRecorder } from './hooks/useAudioRecorder';
 import { useWaveform } from './hooks/useWaveform';
 import { formatTime, formatDate, downloadAudio } from './utils/audioUtils';
-import { getFileExtension } from './utils/formatUtils';
+import { DEFAULT_AUDIO_FORMAT, getFileExtension } from './utils/formatUtils';
 import { convertAudioFormat, cropAudioBlob } from './utils/audioConverter';
 import { saveRecording, migrateFromChromeStorage, updateRecordingName, deleteRecording, getRecording } from './utils/storageManager';
 
@@ -456,7 +456,7 @@ const Popup: React.FC = () => {
 
   const handleDownload = async () => {
     if (audioBlob) {
-      const format = preferences.format || 'webm';
+      const format = preferences.format || DEFAULT_AUDIO_FORMAT;
       const sampleRate = preferences.sampleRate ? parseInt(preferences.sampleRate) : undefined;
       const channelMode = preferences.channelMode || undefined;
       const targetChannels = channelMode === 'mono' ? 1 : channelMode === 'stereo' ? 2 : undefined;
@@ -587,7 +587,7 @@ const Popup: React.FC = () => {
                 setRecordingName(newName);
                 if (currentRecordingId) {
                   try {
-                    const format = preferences.format || 'webm';
+                    const format = preferences.format || DEFAULT_AUDIO_FORMAT;
                     const updatedName = newName.endsWith(`.${getFileExtension(format)}`) ? newName : `${newName}.${getFileExtension(format)}`;
                     await updateRecordingName(currentRecordingId, updatedName);
                   } catch (e) { }

@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
+import { DEFAULT_AUDIO_FORMAT } from '../utils/formatUtils';
 
 interface PreferencesProps {
   onClose?: () => void;
 }
 
 export const Preferences: React.FC<PreferencesProps> = ({ onClose }) => {
-  const [format, setFormat] = useState<string>('wav');
+  const [format, setFormat] = useState<string>(DEFAULT_AUDIO_FORMAT);
   const [sampleRate, setSampleRate] = useState<string>('44100');
   const [channelMode, setChannelMode] = useState<string>('stereo');
   const [bitDepth, setBitDepth] = useState<string>('16');
