@@ -1,6 +1,6 @@
 {
   "name": "audio-splitter-chrome-extension",
-  "version": "1.0.3",
+  "version": "1.0.5",
   "description": "A Chrome extension to record and manipulate browser audio using Meta's SAM model",
   "scripts": {
     "build": "webpack --mode production",

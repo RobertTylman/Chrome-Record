@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Chrome Recorder",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Record audio from your browser tabs with high quality output.",
   "permissions": [
     "desktopCapture",
