@@ -1,6 +1,6 @@
 # Chrome Recorder - Chrome Extension
 
-A Chrome extension for recording browser audio output with waveform visualization, playback controls, format conversion, and extensible audio processing.
+A Chrome extension for recording browser audio output with waveform visualization, playback controls, format conversion, and extensible audio processing. 100+ Users!!!
 
 **[Install from Chrome Web Store](https://chromewebstore.google.com/detail/chrome-recorder/bfmjmjjaiefmjalpplfjeiiicddojdpf?hl=en&authuser=0)**
 
