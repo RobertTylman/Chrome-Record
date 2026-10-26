@@ -12,6 +12,7 @@ import {
   updateRecordingPeaks,
   deleteRecording,
   getRecording,
+  getStorageUsage,
   recoverInterruptedRecordings,
   MAX_RECORDING_SECONDS,
   StoredRecording,
@@ -24,10 +25,32 @@ import { RecordingControls } from './components/RecordingControls';
 import { RecordButton } from './components/RecordButton';
 import { RecentRecordings } from './components/RecentRecordings';
 import { Preferences } from './components/Preferences';
+import { buildDiagnosticsReport, installErrorCapture, logError } from './utils/diagnostics';
 import './styles/popup.css';
+
+installErrorCapture('Popup');
+
+const BUG_REPORT_URL = 'https://docs.google.com/forms/d/e/1FAIpQLSd79vPaXs_-SwoEScobWGNgQu3aRSkc7i0IpTmNQpxuKxVrRg/viewform';
+// Warn when starting a recording with less free space than about two hours of audio
+const LOW_STORAGE_BYTES = 120 * 1024 * 1024;
+
+function reportError(context: string, error: unknown) {
+  logError(`Popup: ${context}`, error);
+}
+
+function errorText(error: any): string {
+  return error?.message || 'Unknown error';
+}
 
 // Show a countdown during the last minutes before the recording length limit
 const LIMIT_WARNING_SECONDS = 10 * 60;
+
+function autoStopMessage(reason: string | undefined, saved = true): string {
+  const what = reason === 'ended'
+    ? 'Recording stopped because the recorded tab was closed'
+    : `Recording stopped at the ${MAX_RECORDING_SECONDS / 60}-minute limit`;
+  return saved ? `${what} and was saved.` : `${what}.`;
+}
 
 const Popup: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'recording' | 'recent' | 'preferences'>('recording');
@@ -53,6 +76,12 @@ const Popup: React.FC = () => {
 
   const [isExporting, setIsExporting] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [noticeAction, setNoticeAction] = useState<{ label: string; onClick: () => void } | null>(null);
+
+  const showNotice = useCallback((text: string | null, action: { label: string; onClick: () => void } | null = null) => {
+    setNotice(text);
+    setNoticeAction(action);
+  }, []);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   // Peaks and duration of the loaded recording, read when its audio is analyzed
@@ -123,32 +152,32 @@ const Popup: React.FC = () => {
         if (newest) loadRecording(newest);
       }
     } catch (error) {
-      console.error('Error recovering interrupted recordings:', error);
+      reportError('recover interrupted recordings', error);
     }
   }, [loadRecording]);
 
-  // Open a recording that was stopped and saved at the length limit
+  // Open a recording the recorder stopped and saved on its own (length limit, tab closed)
   const loadAutoSaved = useCallback(async () => {
     try {
-      const { autoSavedRecordingId } = await chrome.storage.local.get(['autoSavedRecordingId']);
+      const { autoSavedRecordingId, autoSavedReason } = await chrome.storage.local.get(['autoSavedRecordingId', 'autoSavedReason']);
       if (!autoSavedRecordingId) return false;
-      await chrome.storage.local.remove(['autoSavedRecordingId']);
+      await chrome.storage.local.remove(['autoSavedRecordingId', 'autoSavedReason']);
       const recording = await getRecording(autoSavedRecordingId);
       if (!recording) return false;
       loadRecording(recording);
-      setNotice(`Recording stopped at the ${MAX_RECORDING_SECONDS / 60}-minute limit and was saved.`);
+      showNotice(autoStopMessage(autoSavedReason));
       return true;
     } catch (error) {
-      console.error('Error loading auto-saved recording:', error);
+      reportError('Loading auto-saved recording', error);
       return false;
     }
-  }, [loadRecording]);
+  }, [loadRecording, showNotice]);
 
   useEffect(() => {
     const listener = (message: any) => {
-      if (message.action !== 'recordingLimitReached') return;
+      if (message.action !== 'recordingAutoStopped') return;
       if (message.error) {
-        setNotice(`Recording reached the ${MAX_RECORDING_SECONDS / 60}-minute limit but could not be saved: ${message.error}. It will be recovered the next time you open the extension.`);
+        showNotice(`${autoStopMessage(message.reason, false)} It could not be saved (${message.error}); it will be recovered the next time you open the extension.`);
         return;
       }
       // The background stores the id before closing the recorder; give it a moment
@@ -156,7 +185,7 @@ const Popup: React.FC = () => {
     };
     chrome.runtime.onMessage.addListener(listener);
     return () => chrome.runtime.onMessage.removeListener(listener);
-  }, [loadAutoSaved]);
+  }, [loadAutoSaved, showNotice]);
 
   useEffect(() => {
     chrome.storage.local.get(['migratedToIndexedDB', 'isLightMode', 'theme', 'preferences'], async (result) => {
@@ -189,7 +218,7 @@ const Popup: React.FC = () => {
             }
             chrome.storage.local.set({ migratedToIndexedDB: true });
           } catch (error) {
-            console.error('Migration error:', error);
+            reportError('migrate from chrome.storage', error);
           }
         }, 100);
       }
@@ -258,7 +287,7 @@ const Popup: React.FC = () => {
             }
           }
         } catch (error) {
-          console.error('Error reloading recording:', error);
+          reportError('reload recording', error);
         }
       }
     };
@@ -300,7 +329,7 @@ const Popup: React.FC = () => {
           if (computedPeaks && recordingId) {
             currentPeaksRef.current = computedPeaks;
             if (!knownDurationRef.current) knownDurationRef.current = computedPeaks.max.length / computedPeaks.rate;
-            updateRecordingPeaks(recordingId, computedPeaks).catch(e => console.error('Error saving peaks:', e));
+            updateRecordingPeaks(recordingId, computedPeaks).catch(e => reportError('save peaks', e));
           }
 
           const audioUrl = URL.createObjectURL(audioBlob);
@@ -327,13 +356,13 @@ const Popup: React.FC = () => {
             setCurrentPlayTime(0);
           });
 
-          audio.addEventListener('error', (e) => console.error('Audio playback error:', e));
+          audio.addEventListener('error', () => reportError('audio playback', audio.error?.message || `media error ${audio.error?.code}`));
           audio.load();
           setCurrentPlayTime(0);
           setStartTime(0);
           setTrimStart(0);
         } catch (error) {
-          if (!cancelled) console.error('Error analyzing audio:', error);
+          if (!cancelled) reportError('analyze audio', error);
         }
       }, 100);
       return () => {
@@ -366,12 +395,12 @@ const Popup: React.FC = () => {
         // The length limit may have stopped it just before the click
         else await loadAutoSaved();
       } catch (error: any) {
-        console.error('Error saving recording:', error);
-        const errorMessage = error?.message || 'Unknown error occurred';
+        reportError('save recording', error);
+        const errorMessage = errorText(error);
         if (errorMessage.toLowerCase().includes('quota')) {
-          alert('Recording could not be saved: browser storage is full. Delete some recordings, then reopen the extension to recover it.');
+          showNotice('Recording could not be saved: storage is full. Free up disk space or delete some recordings, then reopen the extension to recover it.');
         } else {
-          alert(`Recording could not be saved: ${errorMessage}. The audio is kept and will be recovered the next time you open the extension.`);
+          showNotice(`Recording could not be saved: ${errorMessage}. The audio is kept and will be recovered the next time you open the extension.`);
         }
       }
     } else {
@@ -390,7 +419,7 @@ const Popup: React.FC = () => {
       setTrimStart(0);
       setTrimEnd(0);
       setCurrentRecordingChannelMode(undefined);
-      setNotice(null);
+      showNotice(null);
 
       let name = `recording ${formatDate(new Date())}`;
       if (preferences.useTabTitle) {
@@ -403,9 +432,17 @@ const Popup: React.FC = () => {
       try {
         await startRecording({ name, channelMode: preferences.channelMode || 'stereo' });
       } catch (error: any) {
-        console.error('Failed to start recording:', error);
-        alert(`Recording failed: ${error?.message || 'Unknown error'}`);
+        reportError('start recording', error);
+        showNotice(`Recording failed to start: ${errorText(error)}`);
+        return;
       }
+
+      try {
+        const { used, quota } = await getStorageUsage();
+        if (quota > 0 && quota - used < LOW_STORAGE_BYTES) {
+          showNotice(`Storage is low (${Math.round((quota - used) / (1024 * 1024))} MB free). Long recordings may not save; delete old recordings to make room.`);
+        }
+      } catch { /* estimate unavailable */ }
     }
   };
 
@@ -536,10 +573,23 @@ const Popup: React.FC = () => {
       const blob = await exportAudio(audioBlob, { ...options, start, end, duration });
       downloadAudio(blob, exportFilename(recordingName, options.format));
     } catch (error: any) {
-      console.error('Error downloading recording:', error);
-      alert(`Download failed: ${error?.message || 'Unknown error'}`);
+      reportError('download', error);
+      showNotice(`Download failed: ${errorText(error)}`);
     } finally {
       setIsExporting(false);
+    }
+  };
+
+  // Copy diagnostics so the user can paste them into the bug form, then offer to open it
+  const handleBugReport = async () => {
+    const openForm = () => window.open(BUG_REPORT_URL, '_blank');
+    try {
+      const report = await buildDiagnosticsReport();
+      await navigator.clipboard.writeText(report);
+      showNotice('Diagnostics copied to your clipboard (no audio or recording content). Please paste them into the description on the bug form.', { label: 'Open bug form', onClick: openForm });
+    } catch (error) {
+      reportError('copy diagnostics', error);
+      openForm();
     }
   };
 
@@ -548,8 +598,8 @@ const Popup: React.FC = () => {
       if (isPaused) await resumeRecording();
       else await pauseRecording();
     } catch (error: any) {
-      console.error('Error toggling pause:', error);
-      alert(`Could not ${isPaused ? 'resume' : 'pause'} recording: ${error?.message || 'Unknown error'}`);
+      reportError('toggle pause', error);
+      showNotice(`Could not ${isPaused ? 'resume' : 'pause'} recording: ${errorText(error)}`);
     }
   };
 
@@ -583,7 +633,7 @@ const Popup: React.FC = () => {
     const idToDelete = currentRecordingId;
     resetEditor();
     if (idToDelete) {
-      try { await deleteRecording(idToDelete); } catch (e) { console.error('Error deleting recording:', e); }
+      try { await deleteRecording(idToDelete); } catch (e) { reportError('delete recording', e); }
     }
   };
 
@@ -653,6 +703,16 @@ const Popup: React.FC = () => {
         <button className={`tab ${activeTab === 'preferences' ? 'active' : ''}`} onClick={() => setActiveTab('preferences')}>Settings</button>
       </nav>
 
+      {notice && (
+        <div className="popup-notice" role="status">
+          <span className="popup-notice-text">{notice}</span>
+          {noticeAction && (
+            <button className="popup-notice-action" onClick={noticeAction.onClick}>{noticeAction.label}</button>
+          )}
+          <button className="popup-notice-dismiss" onClick={() => showNotice(null)} title="Dismiss" aria-label="Dismiss">×</button>
+        </div>
+      )}
+
       {activeTab === 'recording' && (
         <div className="recording-content">
           {recordingName && (
@@ -712,9 +772,6 @@ const Popup: React.FC = () => {
               auto-stops in {formatTime(remainingRecordingSeconds)} ({MAX_RECORDING_SECONDS / 60}-minute limit)
             </div>
           )}
-          {!isRecording && notice && (
-            <div className="recording-notice">{notice}</div>
-          )}
 
           <RecordingControls
             onZoomIn={handleZoomIn}
@@ -743,6 +800,7 @@ const Popup: React.FC = () => {
               setActiveTab('recording');
             }}
             onDeleteRecording={handleRecordingDeleted}
+            onError={(message) => showNotice(message)}
           />
         </div>
       )}
@@ -755,7 +813,7 @@ const Popup: React.FC = () => {
 
       {activeTab !== 'recent' && (
         <>
-          <button className="bug-report-button" onClick={() => window.open('https://docs.google.com/forms/d/e/1FAIpQLSd79vPaXs_-SwoEScobWGNgQu3aRSkc7i0IpTmNQpxuKxVrRg/viewform', '_blank')} title="Submit a bug report">
+          <button className="bug-report-button" onClick={handleBugReport} title="Submit a bug report">
             Report a bug 🐞
           </button>
           <button className="buy-coffee-button" onClick={() => window.open('https://buymeacoffee.com/TheUglyAlpaca', '_blank')} title="Support the developer">

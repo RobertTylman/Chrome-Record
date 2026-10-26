@@ -1,5 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { DEFAULT_AUDIO_FORMAT } from '../utils/formatUtils';
+import { getAllRecordingsMetadata, getStorageUsage } from '../utils/storageManager';
+
+function formatStorageSize(bytes: number): string {
+  if (bytes >= 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 interface PreferencesProps {
   onClose?: () => void;
@@ -12,6 +18,21 @@ export const Preferences: React.FC<PreferencesProps> = ({ onClose }) => {
   const [bitDepth, setBitDepth] = useState<string>('16');
   const [normalize, setNormalize] = useState<boolean>(false);
   const [useTabTitle, setUseTabTitle] = useState<boolean>(false);
+  const [storageSummary, setStorageSummary] = useState<string | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const recordings = await getAllRecordingsMetadata();
+        const recordingBytes = recordings.reduce((sum, r) => sum + (r.size || 0), 0);
+        const { used, quota } = await getStorageUsage();
+        const free = quota > 0 ? `, ${formatStorageSize(Math.max(0, quota - used))} free` : '';
+        setStorageSummary(`${recordings.length} recording${recordings.length === 1 ? '' : 's'}, ${formatStorageSize(recordingBytes)}${free}`);
+      } catch {
+        setStorageSummary(null);
+      }
+    })();
+  }, []);
 
   useEffect(() => {
     // Load saved preferences
@@ -168,6 +189,13 @@ export const Preferences: React.FC<PreferencesProps> = ({ onClose }) => {
           <span className="toggle-slider"></span>
         </label>
       </div>
+
+      {storageSummary && (
+        <div className="preference-item" title="Space used by saved recordings, and space still available to the extension">
+          <label className="preference-label">storage</label>
+          <span className="preference-value">{storageSummary}</span>
+        </div>
+      )}
     </div>
   );
 };

@@ -1,3 +1,5 @@
+import { appendDiagnostic, logError } from '../popup/utils/diagnostics';
+
 // Background service worker: obtains the tab capture stream id and coordinates the offscreen
 // document that records. Audio never passes through here — the offscreen document writes it
 // straight to IndexedDB, so a service worker restart cannot lose a recording.
@@ -27,6 +29,9 @@ interface Message {
   tabId?: number;
   details?: { name?: string; channelMode?: string };
   recording?: { id: string };
+  context?: string;
+  message?: string;
+  reason?: string;
 }
 
 // Persist defaults so the Settings screen and the download logic always agree
@@ -68,7 +73,10 @@ chrome.runtime.onMessage.addListener((message: Message, sender: chrome.runtime.M
     // around holds a real recording (e.g. after a service worker restart)
     stopAndSave(message.details || {})
       .then((recording) => sendResponse({ success: true, recording }))
-      .catch((error) => sendResponse({ success: false, error: error.message }));
+      .catch((error) => {
+        logError('Background: stop and save', error);
+        sendResponse({ success: false, error: error.message });
+      });
     return true;
   }
 
@@ -79,12 +87,18 @@ chrome.runtime.onMessage.addListener((message: Message, sender: chrome.runtime.M
     return true;
   }
 
-  // The offscreen document stopped and saved a recording that reached the length limit
-  if (message.action === 'recordingLimitReached') {
+  // Diagnostics from the offscreen document, which has no chrome.storage
+  if (message.action === 'logDiagnostic') {
+    appendDiagnostic(message.context || 'Recorder', message.message || '').catch(() => { });
+    return;
+  }
+
+  // The offscreen document stopped and saved a recording on its own (length limit, tab closed)
+  if (message.action === 'recordingAutoStopped') {
     (async () => {
       if (message.recording?.id) {
         // The popup may be closed; it loads this recording the next time it opens
-        await chrome.storage.local.set({ autoSavedRecordingId: message.recording.id });
+        await chrome.storage.local.set({ autoSavedRecordingId: message.recording.id, autoSavedReason: message.reason });
       }
       await chrome.offscreen.closeDocument().catch(() => { });
       await chrome.storage.local.remove(RECORDING_STATE_KEYS);

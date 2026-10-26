@@ -1,12 +1,14 @@
 {
   "name": "audio-splitter-chrome-extension",
-  "version": "1.0.5",
-  "description": "A Chrome extension to record and manipulate browser audio using Meta's SAM model",
+  "version": "1.0.6",
+  "description": "A Chrome extension to record browser tab audio with waveform editing and WAV/MP3/OGG/WebM export",
   "scripts": {
     "build": "webpack --mode production",
     "dev": "webpack --mode development --watch",
     "clean": "rm -rf dist",
-    "generate-icons": "node scripts/generate-icons.js"
+    "generate-icons": "node scripts/generate-icons.js",
+    "build:test": "webpack --config tests/webpack.config.js",
+    "test": "npm run build && npm run build:test && playwright test"
   },
   "keywords": [
     "chrome-extension",
@@ -23,6 +25,7 @@
     "react-dom": "^18.2.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.64.1",
     "@types/chrome": "^0.0.268",
     "@types/jszip": "^3.4.0",
     "@types/node": "^25.0.3",

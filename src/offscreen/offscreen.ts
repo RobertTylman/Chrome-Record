@@ -1,3 +1,4 @@
+import { logError } from '../popup/utils/diagnostics';
 import { appendRecordingChunk, finalizeRecordingSession, MAX_RECORDING_SECONDS, PEAKS_PER_SECOND, RecordingMetadata } from '../popup/utils/storageManager';
 
 // Offscreen document: owns the MediaRecorder and persists audio to IndexedDB every second,
@@ -5,6 +6,12 @@ import { appendRecordingChunk, finalizeRecordingSession, MAX_RECORDING_SECONDS, 
 
 const CHUNK_INTERVAL_MS = 1000;
 const AUDIO_BITS_PER_SECOND = 128000;
+
+// Live waveform sent to the popup: the bars the popup draws (it samples 600 of the analyser's bins)
+const LIVE_WAVEFORM_BARS = 600;
+const LIVE_WAVEFORM_INTERVAL_MS = 33; // ~30 FPS
+
+type AutoStopReason = 'limit' | 'ended';
 
 interface RecordingDetails {
   name?: string;
@@ -23,7 +30,7 @@ interface RecordingSession {
   pendingAvg: number[];
   writeChain: Promise<void>;
   writeError: unknown;
-  waveformInterval: number;
+  analyser: AnalyserNode;
   details: RecordingDetails;
   peakCount: number;
   stopping: Promise<RecordingMetadata | null> | null;
@@ -68,17 +75,34 @@ function toByte(value: number): number {
   return Math.min(255, Math.round(value * 255));
 }
 
-// Stop and save when the recording reaches MAX_RECORDING_SECONDS, then tell the background and popup
-async function stopAtLimit(current: RecordingSession) {
+// Stop and save without the popup — at the length limit, or when the captured tab closes —
+// then tell the background and popup
+async function autoStop(current: RecordingSession, reason: AutoStopReason) {
   if (current.stopping) return;
   try {
     const recording = await stopRecording(current.details);
-    chrome.runtime.sendMessage({ action: 'recordingLimitReached', recording }).catch(() => { });
+    chrome.runtime.sendMessage({ action: 'recordingAutoStopped', reason, recording }).catch(() => { });
   } catch (error: any) {
-    console.error('Failed to save recording at length limit:', error);
-    chrome.runtime.sendMessage({ action: 'recordingLimitReached', error: error?.message || String(error) }).catch(() => { });
+    logError(`Recorder: save after auto-stop (${reason})`, error);
+    chrome.runtime.sendMessage({ action: 'recordingAutoStopped', reason, error: error?.message || String(error) }).catch(() => { });
   }
 }
+
+// The popup opens a port while it is showing a recording in progress
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== 'waveform') return;
+  const bins = new Uint8Array(1024);
+  const bars = new Array<number>(LIVE_WAVEFORM_BARS);
+  const interval = window.setInterval(() => {
+    if (!session || session.recorder.state !== 'recording') return;
+    const analyser = session.analyser;
+    if (bins.length !== analyser.frequencyBinCount) return;
+    analyser.getByteFrequencyData(bins);
+    for (let i = 0; i < LIVE_WAVEFORM_BARS; i++) bars[i] = bins[Math.floor((i / LIVE_WAVEFORM_BARS) * bins.length)];
+    port.postMessage({ data: bars });
+  }, LIVE_WAVEFORM_INTERVAL_MS);
+  port.onDisconnect.addListener(() => clearInterval(interval));
+});
 
 function updateFallbackLimit(current: RecordingSession, pause: boolean) {
   if (current.peakNode) return;
@@ -91,7 +115,7 @@ function updateFallbackLimit(current: RecordingSession, pause: boolean) {
   } else if (!pause && current.resumedAt === null) {
     current.resumedAt = now;
     const remainingMs = Math.max(0, MAX_RECORDING_SECONDS * 1000 - current.activeMs);
-    current.limitTimer = window.setTimeout(() => stopAtLimit(current), remainingMs);
+    current.limitTimer = window.setTimeout(() => autoStop(current, 'limit'), remainingMs);
   }
 }
 
@@ -136,25 +160,13 @@ async function startRecording(streamId: string, sessionId: string, details: Reco
     // Output is silent; connecting it keeps the node processing
     peakNode.connect(audioCtx.destination);
   } catch (error) {
-    console.error('Peak meter unavailable, waveform will be computed after recording:', error);
+    logError('Recorder: peak meter unavailable, waveform will be computed after recording', error);
   }
 
   const recorder = new MediaRecorder(media, {
     mimeType: 'audio/webm;codecs=opus',
     audioBitsPerSecond: AUDIO_BITS_PER_SECOND
   });
-
-  // Live waveform for the popup
-  const waveformInterval = window.setInterval(() => {
-    if (recorder.state === 'recording') {
-      const dataArray = new Uint8Array(analyser.frequencyBinCount);
-      analyser.getByteFrequencyData(dataArray);
-      chrome.runtime.sendMessage({
-        action: 'waveformUpdate',
-        data: Array.from(dataArray)
-      }).catch(() => { /* popup closed */ });
-    }
-  }, 16); // ~60 FPS
 
   const current: RecordingSession = {
     id: sessionId,
@@ -168,7 +180,7 @@ async function startRecording(streamId: string, sessionId: string, details: Reco
     pendingAvg,
     writeChain: Promise.resolve(),
     writeError: null,
-    waveformInterval,
+    analyser,
     details,
     peakCount: 0,
     stopping: null,
@@ -184,11 +196,16 @@ async function startRecording(streamId: string, sessionId: string, details: Reco
     peakNode.port.onmessage = (event) => {
       pendingMax.push(toByte(event.data.max));
       pendingAvg.push(toByte(event.data.avg));
-      if (++current.peakCount >= maxPeaks) stopAtLimit(current);
+      if (++current.peakCount >= maxPeaks) autoStop(current, 'limit');
     };
   } else {
     updateFallbackLimit(current, false);
   }
+
+  // The stream ends when the captured tab is closed (or capture is otherwise revoked)
+  media.getAudioTracks().forEach((track) => {
+    track.addEventListener('ended', () => autoStop(current, 'ended'));
+  });
 
   // Chunks are written in order through a single promise chain
   recorder.ondataavailable = (event) => {
@@ -202,7 +219,7 @@ async function startRecording(streamId: string, sessionId: string, details: Reco
     current.writeChain = current.writeChain
       .then(() => appendRecordingChunk(chunk))
       .catch((error) => {
-        console.error('Failed to persist recording chunk:', error);
+        logError('Recorder: persist chunk', error);
         current.writeError = error;
       });
   };
@@ -231,12 +248,11 @@ async function finishRecording(current: RecordingSession, details: RecordingDeta
   }
   await current.writeChain;
 
-  clearInterval(current.waveformInterval);
   current.media.getTracks().forEach((t) => t.stop());
   current.audioCtx.close().catch(() => { });
 
   if (current.writeError) {
-    console.error('Some chunks failed to save; saving what was stored');
+    logError('Recorder', 'Some chunks failed to save; saving what was stored');
   }
 
   try {

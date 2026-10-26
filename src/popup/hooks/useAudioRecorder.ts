@@ -81,10 +81,10 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
     checkRecordingState();
   }, [checkRecordingState]);
 
-  // The offscreen document stopped the recording at the length limit
+  // The offscreen document stopped the recording on its own (length limit, tab closed)
   useEffect(() => {
     const listener = (message: any) => {
-      if (message.action !== 'recordingLimitReached') return;
+      if (message.action !== 'recordingAutoStopped') return;
       stopTimer();
       setIsRecording(false);
       setIsPaused(false);

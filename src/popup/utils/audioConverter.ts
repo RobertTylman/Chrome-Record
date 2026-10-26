@@ -2,41 +2,14 @@
 // in small blocks, so memory use does not grow with recording length.
 //
 // Sources: WebM/Opus (decoded with WebCodecs), WAV (read in slices), anything else (decodeAudioData).
-// Outputs: WAV (RIFF, or RF64 above 4 GB), MP3 (lamejs), OGG and WebM (Opus; remuxed without
+// Outputs: WAV (RIFF, or RF64 above 4 GB), MP3 (lamejs, in a Web Worker), OGG and WebM (Opus; remuxed without
 // re-encoding when no edits are requested).
-// @ts-ignore - lamejs lacks type definitions
-import * as lamejs_base from 'lamejs';
 import { parseWebm, isWebm, WebmAudioTrack, WebmOpusMuxer } from './webm';
 import { OggOpusMuxer, buildOpusHead, opusHeadPreSkip, opusPacketSamples } from './ogg';
 import { WavWriter, isWav, readWavInfo, readWavBlocks } from './wav';
 import { PEAKS_PER_SECOND, WaveformPeaks } from './storageManager';
+import { Mp3BlockEncoder } from './mp3';
 
-// Fix for lamejs scope issues - it expects these to be global
-// @ts-ignore
-const g = (typeof window !== 'undefined' ? window : global) as any;
-if (typeof window !== 'undefined') {
-  try {
-    if (!g.MPEGMode) g.MPEGMode = require('lamejs/src/js/MPEGMode.js');
-    if (!g.Lame) g.Lame = require('lamejs/src/js/Lame.js');
-    if (!g.BitStream) g.BitStream = require('lamejs/src/js/BitStream.js');
-    if (!g.LameGlobalFlags) g.LameGlobalFlags = require('lamejs/src/js/LameGlobalFlags.js');
-    if (!g.LameInternalFlags) g.LameInternalFlags = require('lamejs/src/js/LameInternalFlags.js');
-    if (!g.Tables) g.Tables = require('lamejs/src/js/Tables.js');
-    if (!g.Encoder) g.Encoder = require('lamejs/src/js/Encoder.js');
-    if (!g.L3Side) g.L3Side = require('lamejs/src/js/L3Side.js');
-
-    // Also common types that are often used globally
-    const common = require('lamejs/src/js/common.js');
-    if (!g.VbrMode) g.VbrMode = common.VbrMode;
-    if (!g.Float) g.Float = common.Float;
-    if (!g.ShortBlock) g.ShortBlock = common.ShortBlock;
-    if (!g.Util) g.Util = common.Util;
-    if (!g.Arrays) g.Arrays = common.Arrays;
-    if (!g.System) g.System = common.System;
-  } catch (e) {
-    console.warn('Could not inject lamejs globals:', e);
-  }
-}
 
 export interface ExportOptions {
   format: string;
@@ -281,41 +254,98 @@ interface Encoder {
   finish(): Promise<Blob> | Blob;
 }
 
-function createMp3Encoder(sampleRate: number, channels: number): Encoder {
-  // @ts-ignore
-  const mp3encoder = new lamejs_base.Mp3Encoder(channels, sampleRate, 128);
+// Collects encoded MP3 bytes into Blob parts of about 1 MB
+function createMp3Output() {
   const parts: Blob[] = [];
   let pending: Int8Array[] = [];
   let pendingBytes = 0;
-
-  const toInt16 = (samples: Float32Array) => {
-    const out = new Int16Array(samples.length);
-    for (let i = 0; i < samples.length; i++) {
-      const s = Math.max(-1, Math.min(1, samples[i]));
-      out[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
-    }
-    return out;
-  };
-  const push = (buf: Int8Array) => {
-    if (buf.length === 0) return;
-    pending.push(buf);
-    pendingBytes += buf.length;
-    if (pendingBytes > 1024 * 1024) {
-      parts.push(new Blob(pending as BlobPart[]));
-      pending = [];
-      pendingBytes = 0;
+  return {
+    push(buf: Int8Array) {
+      if (buf.length === 0) return;
+      pending.push(buf);
+      pendingBytes += buf.length;
+      if (pendingBytes > 1024 * 1024) {
+        parts.push(new Blob(pending as BlobPart[]));
+        pending = [];
+        pendingBytes = 0;
+      }
+    },
+    blob() {
+      return new Blob([...parts, new Blob(pending as BlobPart[])], { type: 'audio/mpeg' });
     }
   };
+}
 
+function mp3WorkerUrl(): string {
+  if (typeof chrome !== 'undefined' && chrome.runtime?.getURL) return chrome.runtime.getURL('mp3-worker.js');
+  return new URL('mp3-worker.js', location.href).href;
+}
+
+function createInPageMp3Encoder(sampleRate: number, channels: number): Encoder {
+  const encoder = new Mp3BlockEncoder(channels, sampleRate);
+  const output = createMp3Output();
   return {
     write(block) {
-      const left = toInt16(block[0]);
-      const right = channels > 1 ? toInt16(block[1]) : undefined;
-      push(mp3encoder.encodeBuffer(left, right as Int16Array));
+      output.push(encoder.encode(block[0], block[1]));
     },
     finish() {
-      push(mp3encoder.flush());
-      return new Blob([...parts, new Blob(pending as BlobPart[])], { type: 'audio/mpeg' });
+      output.push(encoder.flush());
+      return output.blob();
+    }
+  };
+}
+
+// lamejs is slow JavaScript; encoding in a worker keeps the export page responsive
+const MP3_MAX_BLOCKS_IN_FLIGHT = 8;
+
+function createMp3Encoder(sampleRate: number, channels: number): Encoder {
+  let worker: Worker;
+  try {
+    worker = new Worker(mp3WorkerUrl());
+  } catch (error) {
+    console.warn('MP3 worker unavailable, encoding on the page:', error);
+    return createInPageMp3Encoder(sampleRate, channels);
+  }
+
+  const output = createMp3Output();
+  let inFlight = 0;
+  let error: Error | null = null;
+  let waiters: (() => void)[] = [];
+  const wake = () => waiters.splice(0).forEach(resolve => resolve());
+  const waitUntil = async (done: () => boolean) => {
+    while (!done() && !error) await new Promise<void>(resolve => waiters.push(resolve));
+  };
+
+  worker.onmessage = (event: MessageEvent) => {
+    if (event.data.type === 'error') error = new Error(`MP3 encoding failed: ${event.data.message}`);
+    else output.push(event.data.data);
+    inFlight--;
+    wake();
+  };
+  worker.onerror = (event) => {
+    error = new Error(`MP3 encoder failed to load: ${event.message || 'unknown error'}`);
+    wake();
+  };
+  worker.postMessage({ type: 'init', channels, sampleRate });
+
+  return {
+    async write(block) {
+      if (error) throw error;
+      // Copy: blocks can be views into buffers the pipeline still uses, and transfer detaches them
+      const left = block[0].slice();
+      const right = channels > 1 ? block[1].slice() : undefined;
+      worker.postMessage({ type: 'encode', left, right }, right ? [left.buffer, right.buffer] : [left.buffer]);
+      inFlight++;
+      await waitUntil(() => inFlight < MP3_MAX_BLOCKS_IN_FLIGHT);
+      if (error) throw error;
+    },
+    async finish() {
+      worker.postMessage({ type: 'flush' });
+      inFlight++;
+      await waitUntil(() => inFlight === 0);
+      worker.terminate();
+      if (error) throw error;
+      return output.blob();
     }
   };
 }
@@ -420,9 +450,10 @@ export async function exportAudio(blob: Blob, options: ExportOptions): Promise<B
   const hasEdits = isTrimmed || channels !== source.channels || !!options.normalize;
 
   // Lossless fast paths for unedited Opus recordings
-  if (source.opusTrack && !hasEdits) {
-    if (format === 'webm') return new Blob([blob], { type: 'audio/webm' });
-    if (format === 'ogg') return remuxOpusToOgg(source.opusTrack);
+  if (source.opusTrack && !hasEdits && (format === 'webm' || format === 'ogg')) {
+    const result = format === 'webm' ? new Blob([blob], { type: 'audio/webm' }) : remuxOpusToOgg(source.opusTrack);
+    onProgress(1);
+    return result;
   }
 
   let outputRate: number;

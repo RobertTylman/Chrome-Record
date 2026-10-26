@@ -8,21 +8,21 @@ A Chrome extension for recording browser audio output with waveform visualizatio
   <table>
     <tr>
       <td width="50%" align="center">
-        <img src="./Screenshot%202025-12-25%20at%206.13.47%E2%80%AFPM.png" width="350" alt="Recording View"><br>
+        <img src="./docs/screenshots/recording-theme-1.png" width="350" alt="Recording View"><br>
         <em>Recording View (Theme 1)</em>
       </td>
       <td width="50%" align="center">
-        <img src="./Screenshot%202025-12-25%20at%206.14.13%E2%80%AFPM.png" width="350" alt="Recent Recordings View"><br>
+        <img src="./docs/screenshots/recording-theme-2.png" width="350" alt="Recent Recordings View"><br>
         <em>Recording View (Theme 2)</em>
       </td>
     </tr>
     <tr>
       <td width="50%" align="center">
-        <img src="./Screenshot%202025-12-25%20at%206.19.24%E2%80%AFPM.png" width="350" alt="Theme 3 View"><br>
+        <img src="./docs/screenshots/my-recordings.png" width="350" alt="Theme 3 View"><br>
         <em>My Recordings Screen (Theme 2)</em>
       </td>
       <td width="50%" align="center">
-        <img src="./Screenshot%202025-12-25%20at%206.19.34%E2%80%AFPM.png" width="350" alt="Theme 4 View"><br>
+        <img src="./docs/screenshots/settings.png" width="350" alt="Theme 4 View"><br>
         <em>Settings (Theme 4)</em>
       </td>
     </tr>
@@ -161,29 +161,45 @@ Use this option for development or to get the very latest improvements and featu
 - **Frontend**: React + TypeScript
 - **Build Tool**: Webpack
 - **Audio Engine**: 
-  - Web Audio API for playback and analysis.
-  - `lamejs` for MP3 encoding.
-  - Custom PCM encoders for WAV (16/24/32-bit).
+  - `MediaRecorder` (Opus in WebM) in an offscreen document, with an `AudioWorklet` measuring waveform peaks.
+  - WebCodecs (`AudioDecoder` / `AudioEncoder`) for streaming decode and Opus re-encoding.
+  - `lamejs` in a Web Worker for MP3 encoding.
+  - Custom streaming writers for WAV (16/24/32-bit, RF64 above 4 GB), Ogg Opus and WebM.
 - **Chrome APIs**: 
   - `chrome.tabCapture` - For capturing tab audio.
-  - `chrome.offscreen` - For reliable background audio processing and recording.
-  - `chrome.storage.local` - For preferences, settings, and trim metadata.
+  - `chrome.offscreen` - For recording that continues when the popup is closed.
+  - `chrome.storage.local` - For preferences, recording state and a short diagnostics log.
   - `chrome.storage.session` - For temporary UI state.
 - **Storage Strategy**: 
-  - **IndexedDB**: High-capacity storage for multi-track audio data.
-  - **Internal WAV**: All recordings are stored as raw WAV data to ensure consistency and eliminate re-conversion cpu overhead.
+  - **IndexedDB**: recordings are stored as the original compressed WebM/Opus (about 58 MB per hour) and converted only when downloaded.
+  - **Crash-safe recording**: audio is written to IndexedDB every second while recording; interrupted recordings are recovered the next time the popup opens.
+  - **Streaming export**: downloads are decoded and encoded in small blocks, so memory use does not grow with recording length. Long exports run in their own tab.
 
-### Storage Capacity
+### Limits
 
-- **Managed Storage**: While IndexedDB allows for large amounts of data, the extension manages storage to ensure browser performance.
-- **Persistence**: Data survives browser restarts and extension updates.
+- Recordings stop and save automatically after 1 hour (paused time doesn't count).
+- Requires Chrome 116 or later.
 
 ### Permissions
 
 - `tabCapture` - To capture audio from browser tabs.
 - `tabs` - To access current tab information for naming.
-- `storage` - To save recordings and preferences.
 - `activeTab` - To interact with the current active tab.
+- `offscreen` - To record in the background while the popup is closed.
+- `storage` / `unlimitedStorage` - To save recordings and preferences without hitting the default storage quota.
+
+## Testing
+
+```bash
+npm test
+```
+
+Builds the extension and runs the Playwright suite in Chromium:
+
+- `tests/pipeline.spec.ts` records a synthetic tone (with a pause) through the same MediaRecorder and peak-worklet setup the extension uses, then checks recovery, seeking and every export format by decoding the output.
+- `tests/extension.spec.ts` loads `dist/` as an unpacked extension and checks the popup, crash recovery, the export tab download and the bug-report diagnostics.
+
+Starting a real tab recording needs a user click on the extension, which automation can't do, so test record/pause/stop on a real tab by hand before releasing.
 
 ## Experimental & Future Features
 

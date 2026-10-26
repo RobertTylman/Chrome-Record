@@ -74,36 +74,38 @@ export function useWaveform(): UseWaveformReturn {
 
   const liveWaveformDataRef = useRef<Uint8Array | null>(null);
 
+  // Live waveform from the offscreen recorder, streamed over a port only while the popup shows it
   const listenForRemoteUpdates = useCallback(() => {
     // Reusable buffer to prevent GC pressure
     let updateBuffer: Uint8Array | null = null;
-    // Notify subscribers that new data is available (can be used to trigger a draw if loop is separate)
-    // For now, we rely on the consumer (Waveform) polling the ref in rAF loop
+    let port: chrome.runtime.Port | null = null;
+    let retryTimer: number | null = null;
+    let active = true;
 
-    const listener = (message: any) => {
-      if (message.action === 'waveformUpdate' && message.data) {
+    const connect = () => {
+      port = chrome.runtime.connect({ name: 'waveform' });
+      port.onMessage.addListener((message: { data: number[] }) => {
         const data = message.data;
-
-        // Initialize or resize buffer if needed
         if (!updateBuffer || updateBuffer.length !== data.length) {
           updateBuffer = new Uint8Array(data.length);
         }
-
-        // Copy data to reusable buffer
-        for (let i = 0; i < data.length; i++) {
-          updateBuffer[i] = data[i];
-        }
-
-        // Update the REF, not state - avoids React render cycle
+        updateBuffer.set(data);
+        // Update the REF, not state - avoids React render cycle; Waveform polls it in its rAF loop
         liveWaveformDataRef.current = updateBuffer;
-      }
+      });
+      // The recorder may still be starting; reconnect while recording
+      port.onDisconnect.addListener(() => {
+        void chrome.runtime.lastError;
+        port = null;
+        if (active) retryTimer = window.setTimeout(connect, 500);
+      });
     };
+    connect();
 
-    chrome.runtime.onMessage.addListener(listener);
-
-    // Return cleanup function
     return () => {
-      chrome.runtime.onMessage.removeListener(listener);
+      active = false;
+      if (retryTimer) clearTimeout(retryTimer);
+      port?.disconnect();
       liveWaveformDataRef.current = null;
     };
   }, []);

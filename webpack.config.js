@@ -8,7 +8,8 @@ module.exports = {
     background: './src/background/background.ts',
     offscreen: './src/offscreen/offscreen.ts',
     'peak-worklet': './src/offscreen/peakWorklet.ts',
-    export: './src/export/export.ts'
+    export: './src/export/export.ts',
+    'mp3-worker': './src/export/mp3Worker.ts'
   },
   output: {
     path: path.resolve(__dirname, 'dist'),

@@ -5,6 +5,9 @@ import { exportAudio, estimateExportSize } from '../popup/utils/audioConverter';
 import { downloadAudio } from '../popup/utils/audioUtils';
 import { exportFilename, getExportOptions } from '../popup/utils/exportUtils';
 import { getRecording, RecordingMetadata } from '../popup/utils/storageManager';
+import { installErrorCapture, logError } from '../popup/utils/diagnostics';
+
+installErrorCapture('Export tab');
 
 // Above this, "Download all" saves files one by one instead of building a zip in memory
 const MAX_ZIP_BYTES = 1024 * 1024 * 1024;
@@ -115,7 +118,7 @@ async function run() {
         row.done(`Downloaded ${filename} (${formatBytes(blob.size)})`);
       }
     } catch (error: any) {
-      console.error(`Error exporting ${metadata.name}:`, error);
+      logError(`Export tab: ${options.format} export`, error);
       failures++;
       row.fail(`Failed: ${error?.message || 'Unknown error'}`);
     }
@@ -139,7 +142,7 @@ async function run() {
 const locks = (navigator as any).locks;
 const task = () => run().catch((error) => {
   exporting = false;
-  console.error('Export failed:', error);
+  logError('Export tab', error);
   titleEl.textContent = 'Export failed';
   hintEl.textContent = error?.message || 'Unknown error';
 });

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { exportAudio } from '../utils/audioConverter';
 import { downloadAudio } from '../utils/audioUtils';
 import { exportFilename, getExportOptions, openExportTab, shouldExportInTab } from '../utils/exportUtils';
+import { logError } from '../utils/diagnostics';
 import { getAllRecordingsMetadata, getRecording, deleteRecording, RecordingMetadata, StoredRecording } from '../utils/storageManager';
 
 type Recording = RecordingMetadata;
@@ -9,13 +10,13 @@ type Recording = RecordingMetadata;
 interface RecentRecordingsProps {
   onSelectRecording: (recording: StoredRecording) => void;
   onDeleteRecording?: (id: string) => void;
+  onError?: (message: string) => void;
 }
 
-export const RecentRecordings: React.FC<RecentRecordingsProps> = ({ onSelectRecording, onDeleteRecording }) => {
+export const RecentRecordings: React.FC<RecentRecordingsProps> = ({ onSelectRecording, onDeleteRecording, onError }) => {
   const [recordings, setRecordings] = useState<Recording[]>([]);
   const [loading, setLoading] = useState(true);
   const [fileSizes, setFileSizes] = useState<{ [id: string]: number }>({});
-  const [isDownloadingAll, setIsDownloadingAll] = useState(false);
 
   useEffect(() => {
     // Only load recordings when component is actually mounted and visible
@@ -52,7 +53,7 @@ export const RecentRecordings: React.FC<RecentRecordingsProps> = ({ onSelectReco
       }
       setFileSizes(sizes);
     } catch (error) {
-      console.error('Error loading recordings:', error);
+      logError('My Recordings: load list', error);
       setRecordings([]);
     } finally {
       setLoading(false);
@@ -69,7 +70,8 @@ export const RecentRecordings: React.FC<RecentRecordingsProps> = ({ onSelectReco
         onDeleteRecording(id);
       }
     } catch (error) {
-      console.error('Error deleting recording:', error);
+      logError('My Recordings: delete', error);
+      onError?.('Could not delete the recording.');
     }
   };
 
@@ -90,8 +92,8 @@ export const RecentRecordings: React.FC<RecentRecordingsProps> = ({ onSelectReco
       const blob = await exportAudio(fullRecording.audio, { ...options, duration: recording.duration });
       downloadAudio(blob, exportFilename(recording.name, options.format));
     } catch (error: any) {
-      console.error('Error downloading recording:', error);
-      alert(`Download failed: ${error?.message || 'Unknown error'}`);
+      logError('My Recordings: download', error);
+      onError?.(`Download failed: ${error?.message || 'Unknown error'}`);
     }
   };
 
@@ -159,7 +161,7 @@ export const RecentRecordings: React.FC<RecentRecordingsProps> = ({ onSelectReco
                   onSelectRecording(fullRecording);
                 }
               } catch (error) {
-                console.error('Error loading recording:', error);
+                logError('My Recordings: open recording', error);
               }
             }}>
               <div className="recording-name-row">
@@ -192,7 +194,7 @@ export const RecentRecordings: React.FC<RecentRecordingsProps> = ({ onSelectReco
                       onSelectRecording(fullRecording);
                     }
                   } catch (error) {
-                    console.error('Error loading recording:', error);
+                    logError('My Recordings: open recording', error);
                   }
                 }}
                 title="Play"
@@ -237,23 +239,14 @@ export const RecentRecordings: React.FC<RecentRecordingsProps> = ({ onSelectReco
       <button
         className="download-all-button"
         onClick={handleDownloadAll}
-        disabled={isDownloadingAll || recordings.length === 0}
+        disabled={recordings.length === 0}
         title="Download all recordings"
       >
-        {isDownloadingAll ? (
-          <>
-            <div className="download-spinner"></div>
-            Downloading...
-          </>
-        ) : (
-          <>
-            <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor">
-              <path d="M10 2a1 1 0 011 1v8.586l2.293-2.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 111.414-1.414L9 11.586V3a1 1 0 011-1z" />
-              <path d="M3 15a1 1 0 011 1h12a1 1 0 110 2H4a1 1 0 01-1-1z" />
-            </svg>
-            Download All ({recordings.length})
-          </>
-        )}
+        <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor">
+          <path d="M10 2a1 1 0 011 1v8.586l2.293-2.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 111.414-1.414L9 11.586V3a1 1 0 011-1z" />
+          <path d="M3 15a1 1 0 011 1h12a1 1 0 110 2H4a1 1 0 01-1-1z" />
+        </svg>
+        Download All ({recordings.length})
       </button>
     </div>
   );
