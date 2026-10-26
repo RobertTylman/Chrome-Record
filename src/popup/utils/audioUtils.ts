@@ -28,13 +28,8 @@ export function downloadAudio(blob: Blob, filename: string): void {
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-}
-
-export async function getAudioBufferFromBlob(blob: Blob): Promise<AudioBuffer> {
-  const arrayBuffer = await blob.arrayBuffer();
-  const audioContext = new AudioContext();
-  return audioContext.decodeAudioData(arrayBuffer);
+  // Revoking right away can cancel a large download before Chrome has read the blob
+  setTimeout(() => URL.revokeObjectURL(url), 5 * 60 * 1000);
 }
 
 

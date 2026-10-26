@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Chrome Recorder",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "Record audio from your browser tabs with high quality output.",
   "permissions": [
     "desktopCapture",
@@ -9,7 +9,8 @@
     "tabs",
     "activeTab",
     "storage",
-    "offscreen"
+    "offscreen",
+    "unlimitedStorage"
   ],
   "background": {
     "service_worker": "background.js"
@@ -26,5 +27,6 @@
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
-  }
+  },
+  "minimum_chrome_version": "116"
 }

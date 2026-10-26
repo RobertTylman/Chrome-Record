@@ -1,23 +1,22 @@
 import React, { useState, useEffect } from 'react';
-import JSZip from 'jszip';
-import { convertAudioFormat } from '../utils/audioConverter';
-import { DEFAULT_AUDIO_FORMAT, getFileExtension } from '../utils/formatUtils';
-import { getAllRecordingsMetadata, getRecording, deleteRecording, RecordingMetadata } from '../utils/storageManager';
+import { exportAudio } from '../utils/audioConverter';
+import { downloadAudio } from '../utils/audioUtils';
+import { exportFilename, getExportOptions, openExportTab, shouldExportInTab } from '../utils/exportUtils';
+import { logError } from '../utils/diagnostics';
+import { getAllRecordingsMetadata, getRecording, deleteRecording, RecordingMetadata, StoredRecording } from '../utils/storageManager';
 
-interface Recording extends RecordingMetadata {
-  audioData: number[]; // For compatibility with existing code
-}
+type Recording = RecordingMetadata;
 
 interface RecentRecordingsProps {
-  onSelectRecording: (recording: Recording) => void;
-  onDeleteRecording?: () => void;
+  onSelectRecording: (recording: StoredRecording) => void;
+  onDeleteRecording?: (id: string) => void;
+  onError?: (message: string) => void;
 }
 
-export const RecentRecordings: React.FC<RecentRecordingsProps> = ({ onSelectRecording, onDeleteRecording }) => {
+export const RecentRecordings: React.FC<RecentRecordingsProps> = ({ onSelectRecording, onDeleteRecording, onError }) => {
   const [recordings, setRecordings] = useState<Recording[]>([]);
   const [loading, setLoading] = useState(true);
   const [fileSizes, setFileSizes] = useState<{ [id: string]: number }>({});
-  const [isDownloadingAll, setIsDownloadingAll] = useState(false);
 
   useEffect(() => {
     // Only load recordings when component is actually mounted and visible
@@ -45,67 +44,18 @@ export const RecentRecordings: React.FC<RecentRecordingsProps> = ({ onSelectReco
   const loadRecordings = async () => {
     setLoading(true);
     try {
-      // Load metadata from IndexedDB (fast, doesn't load audio data)
+      // Metadata only; audio is loaded on demand
       const metadataList = await getAllRecordingsMetadata();
-
-      // Convert to Recording format for compatibility
-      const recordings: Recording[] = metadataList.map(meta => ({
-        ...meta,
-        audioData: [] // Audio data loaded on demand
-      }));
-
-      setRecordings(recordings);
-      setLoading(false); // Show UI immediately
-
-      // Load file sizes asynchronously in background (non-blocking, batched)
-      // Use requestIdleCallback if available, otherwise setTimeout
-      const loadSizes = () => {
-        const sizes: { [id: string]: number } = {};
-        let index = 0;
-        const batchSize = 5; // Process 5 at a time
-
-        const processBatch = async () => {
-          const batch = recordings.slice(index, index + batchSize);
-          if (batch.length === 0) {
-            setFileSizes(sizes);
-            return;
-          }
-
-          await Promise.all(batch.map(async (recording) => {
-            try {
-              const fullRecording = await getRecording(recording.id);
-              if (fullRecording) {
-                sizes[recording.id] = fullRecording.audioData.byteLength;
-              }
-            } catch (error) {
-              console.error(`Error getting size for ${recording.id}:`, error);
-            }
-          }));
-
-          index += batchSize;
-          // Update UI incrementally
-          setFileSizes({ ...sizes });
-
-          // Process next batch
-          if (index < recordings.length) {
-            setTimeout(processBatch, 50); // Small delay to not block UI
-          } else {
-            setFileSizes(sizes);
-          }
-        };
-
-        processBatch();
-      };
-
-      // Defer file size loading
-      if ('requestIdleCallback' in window) {
-        requestIdleCallback(loadSizes, { timeout: 1000 });
-      } else {
-        setTimeout(loadSizes, 100);
+      setRecordings(metadataList);
+      const sizes: { [id: string]: number } = {};
+      for (const meta of metadataList) {
+        if (meta.size) sizes[meta.id] = meta.size;
       }
+      setFileSizes(sizes);
     } catch (error) {
-      console.error('Error loading recordings:', error);
+      logError('My Recordings: load list', error);
       setRecordings([]);
+    } finally {
       setLoading(false);
     }
   };
@@ -116,126 +66,40 @@ export const RecentRecordings: React.FC<RecentRecordingsProps> = ({ onSelectReco
       // Remove from local state
       setRecordings(recordings.filter(r => r.id !== id));
 
-      // Reset extension state when deleting
       if (onDeleteRecording) {
-        onDeleteRecording();
+        onDeleteRecording(id);
       }
     } catch (error) {
-      console.error('Error deleting recording:', error);
+      logError('My Recordings: delete', error);
+      onError?.('Could not delete the recording.');
     }
   };
 
   const handleDownload = async (recording: Recording) => {
+    // Long exports run in their own tab so closing the popup doesn't cancel them
+    if (shouldExportInTab(recording.duration)) {
+      openExportTab({ ids: [recording.id] });
+      return;
+    }
     try {
-      // Load full recording from IndexedDB
       const fullRecording = await getRecording(recording.id);
       if (!fullRecording) {
         console.error('Recording not found');
         return;
       }
-
       // Always use current format preference (not the stored format)
-      // This ensures all downloads use the current format setting
-      const result = await chrome.storage.local.get(['preferences']);
-      const format = result.preferences?.format || DEFAULT_AUDIO_FORMAT;
-      const sampleRate = result.preferences?.sampleRate ? parseInt(result.preferences.sampleRate) : undefined;
-      const channelMode = result.preferences?.channelMode || undefined;
-      const targetChannels = channelMode === 'mono' ? 1 : channelMode === 'stereo' ? 2 : undefined;
-
-      // Convert ArrayBuffer to Blob
-      const originalBlob = new Blob([fullRecording.audioData], { type: 'audio/webm' });
-
-      // Convert audio to the target format with sample rate and channel mode
-      const convertedBlob = await convertAudioFormat(originalBlob, format, sampleRate, targetChannels);
-
-      // Get file extension based on current format preference
-      const extension = getFileExtension(format);
-
-      // Update filename with correct extension
-      let filename = recording.name;
-      // Remove any existing extension
-      const nameWithoutExt = filename.replace(/\.[^/.]+$/, '');
-      filename = `${nameWithoutExt}.${extension}`;
-
-      const url = URL.createObjectURL(convertedBlob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    } catch (error) {
-      console.error('Error downloading recording:', error);
+      const options = await getExportOptions();
+      const blob = await exportAudio(fullRecording.audio, { ...options, duration: recording.duration });
+      downloadAudio(blob, exportFilename(recording.name, options.format));
+    } catch (error: any) {
+      logError('My Recordings: download', error);
+      onError?.(`Download failed: ${error?.message || 'Unknown error'}`);
     }
   };
 
-  const handleDownloadAll = async () => {
-    if (recordings.length === 0 || isDownloadingAll) return;
-
-    setIsDownloadingAll(true);
-    try {
-      const zip = new JSZip();
-
-      // Get current format preferences
-      const result = await chrome.storage.local.get(['preferences']);
-      const format = result.preferences?.format || DEFAULT_AUDIO_FORMAT;
-      const sampleRate = result.preferences?.sampleRate ? parseInt(result.preferences.sampleRate) : undefined;
-      const channelMode = result.preferences?.channelMode || undefined;
-      const targetChannels = channelMode === 'mono' ? 1 : channelMode === 'stereo' ? 2 : undefined;
-      const extension = getFileExtension(format);
-
-      // Track used filenames to handle duplicates
-      const usedFilenames = new Set<string>();
-
-      // Process each recording and add to zip
-      for (const recording of recordings) {
-        try {
-          const fullRecording = await getRecording(recording.id);
-          if (!fullRecording) continue;
-
-          // Convert ArrayBuffer to Blob
-          const originalBlob = new Blob([fullRecording.audioData], { type: 'audio/webm' });
-
-          // Convert audio to the target format
-          const convertedBlob = await convertAudioFormat(originalBlob, format, sampleRate, targetChannels);
-
-          // Get filename and sanitize to prevent subdirectories (remove / and \ characters)
-          const nameWithoutExt = recording.name.replace(/\.[^/.]+$/, '');
-          const sanitizedName = nameWithoutExt.replace(/[\/\\]/g, '_');
-
-          // Handle duplicate filenames by adding a counter
-          let filename = `${sanitizedName}.${extension}`;
-          let counter = 1;
-          while (usedFilenames.has(filename.toLowerCase())) {
-            filename = `${sanitizedName} (${counter}).${extension}`;
-            counter++;
-          }
-          usedFilenames.add(filename.toLowerCase());
-
-          // Add to zip
-          const arrayBuffer = await convertedBlob.arrayBuffer();
-          zip.file(filename, arrayBuffer);
-        } catch (error) {
-          console.error(`Error processing recording ${recording.name}:`, error);
-        }
-      }
-
-      // Generate zip file and download
-      const zipBlob = await zip.generateAsync({ type: 'blob' });
-      const url = URL.createObjectURL(zipBlob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `chrome-recorder-${new Date().toISOString().split('T')[0]}.zip`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    } catch (error) {
-      console.error('Error downloading all recordings:', error);
-    } finally {
-      setIsDownloadingAll(false);
-    }
+  const handleDownloadAll = () => {
+    if (recordings.length === 0) return;
+    openExportTab({ ids: recordings.map(r => r.id), all: true });
   };
 
   const formatDate = (dateString: string) => {
@@ -294,16 +158,10 @@ export const RecentRecordings: React.FC<RecentRecordingsProps> = ({ onSelectReco
               try {
                 const fullRecording = await getRecording(recording.id);
                 if (fullRecording) {
-                  // Convert ArrayBuffer to number array for compatibility
-                  const audioArray = new Uint8Array(fullRecording.audioData);
-                  const recordingWithAudio: Recording = {
-                    ...recording,
-                    audioData: Array.from(audioArray)
-                  };
-                  onSelectRecording(recordingWithAudio);
+                  onSelectRecording(fullRecording);
                 }
               } catch (error) {
-                console.error('Error loading recording:', error);
+                logError('My Recordings: open recording', error);
               }
             }}>
               <div className="recording-name-row">
@@ -333,16 +191,10 @@ export const RecentRecordings: React.FC<RecentRecordingsProps> = ({ onSelectReco
                   try {
                     const fullRecording = await getRecording(recording.id);
                     if (fullRecording) {
-                      // Convert ArrayBuffer to number array for compatibility
-                      const audioArray = new Uint8Array(fullRecording.audioData);
-                      const recordingWithAudio: Recording = {
-                        ...recording,
-                        audioData: Array.from(audioArray)
-                      };
-                      onSelectRecording(recordingWithAudio);
+                      onSelectRecording(fullRecording);
                     }
                   } catch (error) {
-                    console.error('Error loading recording:', error);
+                    logError('My Recordings: open recording', error);
                   }
                 }}
                 title="Play"
@@ -387,23 +239,14 @@ export const RecentRecordings: React.FC<RecentRecordingsProps> = ({ onSelectReco
       <button
         className="download-all-button"
         onClick={handleDownloadAll}
-        disabled={isDownloadingAll || recordings.length === 0}
+        disabled={recordings.length === 0}
         title="Download all recordings"
       >
-        {isDownloadingAll ? (
-          <>
-            <div className="download-spinner"></div>
-            Downloading...
-          </>
-        ) : (
-          <>
-            <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor">
-              <path d="M10 2a1 1 0 011 1v8.586l2.293-2.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 111.414-1.414L9 11.586V3a1 1 0 011-1z" />
-              <path d="M3 15a1 1 0 011 1h12a1 1 0 110 2H4a1 1 0 01-1-1z" />
-            </svg>
-            Download All ({recordings.length})
-          </>
-        )}
+        <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor">
+          <path d="M10 2a1 1 0 011 1v8.586l2.293-2.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 111.414-1.414L9 11.586V3a1 1 0 011-1z" />
+          <path d="M3 15a1 1 0 011 1h12a1 1 0 110 2H4a1 1 0 01-1-1z" />
+        </svg>
+        Download All ({recordings.length})
       </button>
     </div>
   );

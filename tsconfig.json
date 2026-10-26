@@ -19,8 +19,7 @@
     "noEmit": false,
     "outDir": "./dist",
     "rootDir": "./src",
-    "declaration": true,
-    "declarationMap": true,
+    "declaration": false,
     "sourceMap": true,
     "types": [
       "chrome",

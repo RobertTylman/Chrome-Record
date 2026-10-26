@@ -1,4 +1,6 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
+import { computeWaveformPeaks } from '../utils/audioConverter';
+import { WaveformPeaks } from '../utils/storageManager';
 
 interface WaveformData {
   data: Uint8Array;
@@ -9,157 +11,101 @@ interface WaveformData {
 interface UseWaveformReturn {
   waveformData: WaveformData | null;
   liveWaveformDataRef: React.MutableRefObject<Uint8Array | null>;
-  analyzeAudio: (audioBlob: Blob) => Promise<void>;
-  analyzeStream: (stream: MediaStream) => Promise<void>;
+  analyzeAudio: (audioBlob: Blob, peaks?: WaveformPeaks) => Promise<WaveformPeaks | null>;
   clearWaveform: () => void;
   listenForRemoteUpdates: () => () => void;
 }
 
+const WAVEFORM_BARS = 1000;
+
+// Reduce stored peaks to a fixed number of bars: (average + max) / 2 per bar
+function peaksToBars(peaks: WaveformPeaks): Uint8Array {
+  const bars = new Uint8Array(WAVEFORM_BARS);
+  const count = peaks.max.length;
+  if (count === 0) return bars;
+
+  for (let i = 0; i < WAVEFORM_BARS; i++) {
+    const start = Math.floor(i * count / WAVEFORM_BARS);
+    const end = Math.max(start + 1, Math.floor((i + 1) * count / WAVEFORM_BARS));
+    let max = 0;
+    let sum = 0;
+    for (let j = start; j < end; j++) {
+      if (peaks.max[j] > max) max = peaks.max[j];
+      sum += peaks.avg[j];
+    }
+    bars[i] = Math.floor((sum / (end - start) + max) / 2);
+  }
+  return bars;
+}
+
 export function useWaveform(): UseWaveformReturn {
   const [waveformData, setWaveformData] = useState<WaveformData | null>(null);
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
-  const animationFrameRef = useRef<number | null>(null);
+  const analysisIdRef = useRef(0);
 
-  useEffect(() => {
-    // Initialize AudioContext
-    audioContextRef.current = new AudioContext();
-    analyserRef.current = audioContextRef.current.createAnalyser();
-    analyserRef.current.fftSize = 2048;
-    analyserRef.current.smoothingTimeConstant = 0.8;
-
-    return () => {
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
-      }
-      if (audioContextRef.current) {
-        audioContextRef.current.close();
-      }
-    };
+  useEffect(() => () => {
+    analysisIdRef.current++;
   }, []);
 
-  const analyzeAudio = useCallback(async (audioBlob: Blob) => {
-    if (!audioContextRef.current) return;
-
+  // Uses peaks recorded live when available. Otherwise (older or recovered recordings) computes
+  // them by streaming through the file, and returns them so the caller can store them.
+  const analyzeAudio = useCallback(async (audioBlob: Blob, peaks?: WaveformPeaks): Promise<WaveformPeaks | null> => {
+    const analysisId = ++analysisIdRef.current;
     try {
-      const arrayBuffer = await audioBlob.arrayBuffer();
-      const audioBuffer = await audioContextRef.current.decodeAudioData(arrayBuffer);
-
-      // Get raw audio data for waveform visualization
-      const channelData = audioBuffer.getChannelData(0); // Get first channel
-      const samples = channelData.length;
-
-      // Downsample for visualization (take every Nth sample)
-      const targetSamples = 1000; // Number of bars to show
-      const step = Math.max(1, Math.floor(samples / targetSamples));
-      const waveformArray = new Uint8Array(targetSamples);
-
-      for (let i = 0; i < targetSamples; i++) {
-        const start = i * step;
-        const end = Math.min(start + step, samples);
-        let sum = 0;
-        let max = 0;
-
-        for (let j = start; j < end; j++) {
-          const abs = Math.abs(channelData[j]);
-          sum += abs;
-          max = Math.max(max, abs);
-        }
-
-        // Normalize to 0-255 range
-        const avg = sum / (end - start);
-        waveformArray[i] = Math.min(255, Math.floor((avg + max) / 2 * 255));
-      }
+      const resolvedPeaks = peaks && peaks.max.length > 0 ? peaks : await computeWaveformPeaks(audioBlob);
+      if (analysisId !== analysisIdRef.current) return null;
 
       setWaveformData({
-        data: waveformArray,
-        sampleRate: audioBuffer.sampleRate,
-        duration: audioBuffer.duration
+        data: peaksToBars(resolvedPeaks),
+        sampleRate: resolvedPeaks.rate,
+        duration: resolvedPeaks.max.length / resolvedPeaks.rate
       });
+      return resolvedPeaks === peaks ? null : resolvedPeaks;
     } catch (error) {
       console.error('Error analyzing audio:', error);
-    }
-  }, []);
-
-  const analyzeStream = useCallback(async (stream: MediaStream) => {
-    if (!audioContextRef.current || !analyserRef.current) return;
-
-    try {
-      const source = audioContextRef.current.createMediaStreamSource(stream);
-      source.connect(analyserRef.current);
-
-      const bufferLength = analyserRef.current.frequencyBinCount;
-      const dataArray = new Uint8Array(bufferLength);
-      // Reusable buffer for state updates to prevent GC pressure
-      const stateBuffer = new Uint8Array(bufferLength);
-      let frameCount = 0;
-
-      const updateWaveform = () => {
-        if (analyserRef.current) {
-          frameCount++;
-          // Only update state every 3rd frame (20fps instead of 60fps) to reduce CPU usage
-          if (frameCount % 3 === 0) {
-            analyserRef.current.getByteFrequencyData(dataArray);
-            // Copy data to state buffer instead of creating new array
-            stateBuffer.set(dataArray);
-            setWaveformData({
-              data: stateBuffer,
-              sampleRate: audioContextRef.current?.sampleRate || 44100,
-              duration: 0 // Will be updated by recording duration
-            });
-          }
-        }
-        animationFrameRef.current = requestAnimationFrame(updateWaveform);
-      };
-
-      updateWaveform();
-    } catch (error) {
-      console.error('Error analyzing stream:', error);
+      return null;
     }
   }, []);
 
   const clearWaveform = useCallback(() => {
-    // Stop animation frame
-    if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current);
-      animationFrameRef.current = null;
-    }
+    analysisIdRef.current++;
     // Clear waveform data immediately
     setWaveformData(null);
   }, []);
 
   const liveWaveformDataRef = useRef<Uint8Array | null>(null);
 
+  // Live waveform from the offscreen recorder, streamed over a port only while the popup shows it
   const listenForRemoteUpdates = useCallback(() => {
     // Reusable buffer to prevent GC pressure
     let updateBuffer: Uint8Array | null = null;
-    // Notify subscribers that new data is available (can be used to trigger a draw if loop is separate)
-    // For now, we rely on the consumer (Waveform) polling the ref in rAF loop
+    let port: chrome.runtime.Port | null = null;
+    let retryTimer: number | null = null;
+    let active = true;
 
-    const listener = (message: any) => {
-      if (message.action === 'waveformUpdate' && message.data) {
+    const connect = () => {
+      port = chrome.runtime.connect({ name: 'waveform' });
+      port.onMessage.addListener((message: { data: number[] }) => {
         const data = message.data;
-
-        // Initialize or resize buffer if needed
         if (!updateBuffer || updateBuffer.length !== data.length) {
           updateBuffer = new Uint8Array(data.length);
         }
-
-        // Copy data to reusable buffer
-        for (let i = 0; i < data.length; i++) {
-          updateBuffer[i] = data[i];
-        }
-
-        // Update the REF, not state - avoids React render cycle
+        updateBuffer.set(data);
+        // Update the REF, not state - avoids React render cycle; Waveform polls it in its rAF loop
         liveWaveformDataRef.current = updateBuffer;
-      }
+      });
+      // The recorder may still be starting; reconnect while recording
+      port.onDisconnect.addListener(() => {
+        void chrome.runtime.lastError;
+        port = null;
+        if (active) retryTimer = window.setTimeout(connect, 500);
+      });
     };
+    connect();
 
-    chrome.runtime.onMessage.addListener(listener);
-
-    // Return cleanup function
     return () => {
-      chrome.runtime.onMessage.removeListener(listener);
+      active = false;
+      if (retryTimer) clearTimeout(retryTimer);
+      port?.disconnect();
       liveWaveformDataRef.current = null;
     };
   }, []);
@@ -168,7 +114,6 @@ export function useWaveform(): UseWaveformReturn {
     waveformData,
     liveWaveformDataRef, // Expose the ref
     analyzeAudio,
-    analyzeStream,
     clearWaveform,
     listenForRemoteUpdates
   };

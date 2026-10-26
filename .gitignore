@@ -146,5 +146,10 @@ checkpoints/
 5.jpg
 6.jpg
 
-dist 4.zip
-dist 5.zip
+# Build archives
+*.zip
+
+# Playwright
+test-results/
+playwright-report/
+tests/.build/
