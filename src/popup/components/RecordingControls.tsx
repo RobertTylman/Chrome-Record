@@ -59,7 +59,7 @@ export const RecordingControls: React.FC<RecordingControlsProps> = React.memo(({
       <button
         className={`control-button play-button ${isPlaying ? 'playing' : ''}`}
         onClick={isPlaying ? onPause : onPlay}
-        title={isPlaying ? 'Pause' : 'Play'}
+        title={isRecording ? (isPlaying ? 'Pause recording' : 'Resume recording') : (isPlaying ? 'Pause' : 'Play')}
       >
         {isPlaying ? (
           <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">

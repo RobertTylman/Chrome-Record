@@ -674,6 +674,15 @@ body:not(.light-mode):not(.midnight-mode):not(.forest-mode):not(.rainbow-mode) .
   font-variant-numeric: tabular-nums;
 }
 
+.recording-notice {
+  width: 100%;
+  font-size: 11px;
+  color: var(--text-secondary);
+  padding: 2px 0 4px;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
 /* Recording Controls */
 /* Recording Controls */
 /* Recording Controls */

@@ -6,7 +6,9 @@ module.exports = {
   entry: {
     popup: './src/popup/Popup.tsx',
     background: './src/background/background.ts',
-    offscreen: './src/offscreen/offscreen.ts'
+    offscreen: './src/offscreen/offscreen.ts',
+    'peak-worklet': './src/offscreen/peakWorklet.ts',
+    export: './src/export/export.ts'
   },
   output: {
     path: path.resolve(__dirname, 'dist'),
@@ -40,6 +42,12 @@ module.exports = {
       template: './src/offscreen/offscreen.html',
       filename: 'offscreen.html',
       chunks: ['offscreen'],
+      minify: false
+    }),
+    new HtmlWebpackPlugin({
+      template: './src/export/export.html',
+      filename: 'export.html',
+      chunks: ['export'],
       minify: false
     }),
     new CopyWebpackPlugin({
