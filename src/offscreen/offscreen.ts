@@ -11,8 +11,6 @@ const AUDIO_BITS_PER_SECOND = 128000;
 const LIVE_LEVELS_SENT = LIVE_LEVELS_PER_SECOND * 6; // enough history to fill the view when the popup opens
 const LIVE_LEVELS_KEPT = LIVE_LEVELS_SENT * 2;
 const LIVE_WAVEFORM_INTERVAL_MS = 16; // ~60 FPS
-// How often the recorded time is reported to the background for the toolbar badge
-const PROGRESS_INTERVAL_MS = 15000;
 
 type AutoStopReason = 'limit' | 'ended';
 
@@ -47,7 +45,6 @@ interface RecordingSession {
   limitTimer: number | null;
   activeMs: number;
   resumedAt: number | null;
-  progressInterval: number;
   // Markers in recorded seconds: all of them (for the live view) and those not yet saved with a chunk
   markers: number[];
   pendingMarkers: number[];
@@ -116,7 +113,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (!pause && session.recorder.state === 'paused') session.recorder.resume();
       session.peakNode?.port.postMessage(pause ? 'pause' : 'resume');
       updateFallbackLimit(session, pause);
-      reportProgress(session);
     }
     sendResponse({ success: !!session });
   }
@@ -194,16 +190,6 @@ function recordedSeconds(current: RecordingSession): number {
   if (current.peakNode) return current.peakCount / PEAKS_PER_SECOND;
   const running = current.resumedAt !== null ? Date.now() - current.resumedAt : 0;
   return (current.activeMs + running) / 1000;
-}
-
-// Tell the background how long the recording is, for the toolbar badge
-function reportProgress(current: RecordingSession) {
-  if (current.stopping) return;
-  chrome.runtime.sendMessage({
-    action: 'recordingProgress',
-    seconds: recordedSeconds(current),
-    paused: current.recorder.state === 'paused'
-  }).catch(() => { });
 }
 
 function updateFallbackLimit(current: RecordingSession, pause: boolean) {
@@ -296,7 +282,6 @@ async function startRecording(streamId: string, sessionId: string, details: Reco
     limitTimer: null,
     activeMs: 0,
     resumedAt: null,
-    progressInterval: 0,
     markers: [],
     pendingMarkers: [],
     pendingRemovals: []
@@ -348,7 +333,6 @@ async function startRecording(streamId: string, sessionId: string, details: Reco
 
   session = current;
   recorder.start(CHUNK_INTERVAL_MS);
-  current.progressInterval = window.setInterval(() => reportProgress(current), PROGRESS_INTERVAL_MS);
 }
 
 // Safe to call more than once (manual stop racing the length limit); later calls share the result
@@ -361,7 +345,6 @@ function stopRecording(details: RecordingDetails): Promise<RecordingMetadata | n
 
 async function finishRecording(current: RecordingSession, details: RecordingDetails): Promise<RecordingMetadata | null> {
   if (current.limitTimer) clearTimeout(current.limitTimer);
-  clearInterval(current.progressInterval);
 
   // dataavailable (the final chunk) fires before stop
   if (current.recorder.state !== 'inactive') {
