@@ -130,3 +130,59 @@ test('toolbar badge shows recorded minutes, grey when paused, and clears on stop
   await page.evaluate(() => chrome.runtime.sendMessage({ action: 'stopCapture' }));
   await expect.poll(badge).toMatchObject({ text: '', title: 'Chrome Recorder' });
 });
+
+test('markers survive an interrupted recording and can be removed', async ({ context, extensionId }) => {
+  const page = await context.newPage();
+  await page.goto(`chrome-extension://${extensionId}/popup.html`);
+  await expect(page.getByRole('button', { name: 'Start Recording' })).toBeVisible();
+
+  // An interrupted 3 s recording whose chunks carry two markers
+  await page.evaluate(async () => {
+    const ctx = new AudioContext();
+    const osc = ctx.createOscillator();
+    const dest = ctx.createMediaStreamDestination();
+    osc.connect(dest);
+    osc.start();
+    const recorder = new MediaRecorder(dest.stream, { mimeType: 'audio/webm;codecs=opus' });
+    const blobs: Blob[] = [];
+    recorder.ondataavailable = (e) => blobs.push(e.data);
+    recorder.start(1000);
+    await new Promise(r => setTimeout(r, 3000));
+    await new Promise<void>(r => { recorder.onstop = () => r(); recorder.stop(); });
+    await ctx.close();
+    const db: IDBDatabase = await new Promise((resolve) => {
+      const request = indexedDB.open('AudioRecorderDB');
+      request.onsuccess = () => resolve(request.result);
+    });
+    const tx = db.transaction(['chunks'], 'readwrite');
+    blobs.forEach((audio, seq) => tx.objectStore('chunks').put({
+      sessionId: '1700000002000', seq, audio, peakRate: 100,
+      peakMax: new Uint8Array(100).fill(120), peakAvg: new Uint8Array(100).fill(60),
+      markers: seq === 0 ? [0.5] : seq === 1 ? [1.75] : []
+    }));
+    await new Promise((resolve) => { tx.oncomplete = resolve; });
+    db.close();
+  });
+
+  await page.reload();
+  await expect(page.getByText(/^recovered recording/)).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator('.waveform-marker-label')).toHaveCount(2);
+  await expect(page.getByRole('button', { name: 'Add marker' })).toContainText('2');
+
+  await page.locator('.waveform-marker-label').nth(1).click();
+  await expect(page.locator('.time-readout-main')).toHaveText('00:01.75');
+
+  await page.locator('.waveform-marker-label').first().dblclick();
+  await expect(page.locator('.waveform-marker-label')).toHaveCount(1);
+  await expect.poll(async () => page.evaluate(async () => {
+    const db: IDBDatabase = await new Promise((resolve) => {
+      const request = indexedDB.open('AudioRecorderDB');
+      request.onsuccess = () => resolve(request.result);
+    });
+    const record = await new Promise<any>((resolve) => {
+      const request = db.transaction(['recordings']).objectStore('recordings').get('1700000002000');
+      request.onsuccess = () => resolve(request.result);
+    });
+    return record.markers;
+  })).toEqual([1.75]);
+});

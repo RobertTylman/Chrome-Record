@@ -35,24 +35,26 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
   const [duration, setDuration] = useState(0);
 
   const timerRef = useRef<TimerState>({ startTime: 0, pausedAt: null, pausedTotal: 0 });
-  const durationIntervalRef = useRef<number | null>(null);
+  const durationFrameRef = useRef<number | null>(null);
 
   const stopTimer = useCallback(() => {
-    if (durationIntervalRef.current) {
-      clearInterval(durationIntervalRef.current);
-      durationIntervalRef.current = null;
+    if (durationFrameRef.current !== null) {
+      cancelAnimationFrame(durationFrameRef.current);
+      durationFrameRef.current = null;
     }
   }, []);
 
   const startTimer = useCallback((timer: TimerState) => {
     timerRef.current = timer;
     setDuration(elapsedSeconds(timer));
-    // Clear any existing interval first to prevent duplicates when popup reopens
+    // Clear any existing loop first to prevent duplicates when popup reopens
     stopTimer();
-    // 100ms = 10 updates/sec for smooth display
-    durationIntervalRef.current = window.setInterval(() => {
+    // Update every frame, like the playback clock, so the hundredths tick smoothly
+    const tick = () => {
       setDuration(elapsedSeconds(timerRef.current));
-    }, 100);
+      durationFrameRef.current = requestAnimationFrame(tick);
+    };
+    durationFrameRef.current = requestAnimationFrame(tick);
   }, [stopTimer]);
 
   useEffect(() => stopTimer, [stopTimer]);

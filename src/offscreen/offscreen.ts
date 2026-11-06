@@ -48,6 +48,9 @@ interface RecordingSession {
   activeMs: number;
   resumedAt: number | null;
   progressInterval: number;
+  // Markers in recorded seconds: all of them (for the live view) and those not yet saved with a chunk
+  markers: number[];
+  pendingMarkers: number[];
 }
 
 let session: RecordingSession | null = null;
@@ -67,6 +70,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .then((recording) => sendResponse({ success: true, recording }))
       .catch((err) => sendResponse({ success: false, error: err?.message || String(err) }));
     return true;
+  }
+
+  if (message.type === 'ADD_MARKER') {
+    if (!session || session.stopping) {
+      sendResponse({ success: false, error: 'Not recording' });
+      return;
+    }
+    const time = recordedSeconds(session);
+    session.markers.push(time);
+    session.pendingMarkers.push(time);
+    sendResponse({ success: true, time });
+    return;
   }
 
   if (message.type === 'PAUSE_RECORDING' || message.type === 'RESUME_RECORDING') {
@@ -115,10 +130,11 @@ chrome.runtime.onConnect.addListener((port) => {
   if (port.name !== 'waveform') return;
   const samples = new Float32Array(2048);
   let lastSentCount = -1;
+  let lastSentMarkers = 0;
   const interval = window.setInterval(() => {
-    if (!session || session.recorder.state !== 'recording') return;
+    if (!session || session.recorder.state === 'inactive') return;
     // Without the peak meter, measure the level here from the analyser instead
-    if (!session.peakNode) {
+    if (!session.peakNode && session.recorder.state === 'recording') {
       session.analyser.getFloatTimeDomainData(samples);
       let max = 0;
       let sum = 0;
@@ -129,15 +145,19 @@ chrome.runtime.onConnect.addListener((port) => {
       }
       pushLevel(session, toByte(max), toByte(sum / samples.length));
     }
-    if (session.levelCount === lastSentCount) return;
+    // Send when there is new audio or a new marker (markers can be added while paused)
+    if (session.levelCount === lastSentCount && session.markers.length === lastSentMarkers) return;
     // History on the first send, then only the levels produced since
     const fresh = lastSentCount < 0 ? LIVE_LEVELS_SENT : session.levelCount - lastSentCount;
     lastSentCount = session.levelCount;
+    lastSentMarkers = session.markers.length;
     const count = Math.min(fresh, LIVE_LEVELS_SENT);
     port.postMessage({
-      levels: session.levels.slice(-count),
-      avgLevels: session.avgLevels.slice(-count),
+      // slice(-0) would return everything, so send nothing explicitly when there is no new audio
+      levels: count > 0 ? session.levels.slice(-count) : [],
+      avgLevels: count > 0 ? session.avgLevels.slice(-count) : [],
       loudest: session.loudestLevel,
+      markers: session.markers,
       total: session.levelCount
     });
   }, LIVE_WAVEFORM_INTERVAL_MS);
@@ -251,7 +271,9 @@ async function startRecording(streamId: string, sessionId: string, details: Reco
     limitTimer: null,
     activeMs: 0,
     resumedAt: null,
-    progressInterval: 0
+    progressInterval: 0,
+    markers: [],
+    pendingMarkers: []
   };
 
   if (peakNode) {
@@ -286,7 +308,8 @@ async function startRecording(streamId: string, sessionId: string, details: Reco
       audio: event.data,
       peakMax: Uint8Array.from(current.pendingMax.splice(0)),
       peakAvg: Uint8Array.from(current.pendingAvg.splice(0)),
-      peakRate: PEAKS_PER_SECOND
+      peakRate: PEAKS_PER_SECOND,
+      markers: current.pendingMarkers.splice(0)
     };
     current.writeChain = current.writeChain
       .then(() => appendRecordingChunk(chunk))
@@ -321,6 +344,18 @@ async function finishRecording(current: RecordingSession, details: RecordingDeta
     });
   }
   await current.writeChain;
+  if (current.pendingMarkers.length > 0) {
+    // Markers added after the last chunk: save them in an empty chunk so they aren't lost
+    await appendRecordingChunk({
+      sessionId: current.id,
+      seq: current.seq++,
+      audio: new Blob([], { type: 'audio/webm' }),
+      peakMax: new Uint8Array(0),
+      peakAvg: new Uint8Array(0),
+      peakRate: PEAKS_PER_SECOND,
+      markers: current.pendingMarkers.splice(0)
+    }).catch((error) => logError('Recorder: save final markers', error));
+  }
 
   current.media.getTracks().forEach((t) => t.stop());
   current.audioCtx.close().catch(() => { });

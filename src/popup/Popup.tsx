@@ -16,6 +16,7 @@ import {
   getRecording,
   getStorageUsage,
   recoverInterruptedRecordings,
+  updateRecordingMarkers,
   MAX_RECORDING_SECONDS,
   StoredRecording,
   WaveformPeaks
@@ -23,7 +24,7 @@ import {
 
 import { Waveform } from './components/Waveform';
 import { AudioInfo } from './components/AudioInfo';
-import { TransportControls, ZoomControls } from './components/RecordingControls';
+import { MarkerButton, TransportControls, ZoomControls } from './components/RecordingControls';
 import { RecordButton } from './components/RecordButton';
 import { RecentRecordings } from './components/RecentRecordings';
 import { Preferences } from './components/Preferences';
@@ -78,6 +79,8 @@ const Popup: React.FC = () => {
 
   const [isExporting, setIsExporting] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  // Marker times (seconds) for the recording in progress or the one loaded in the editor
+  const [markers, setMarkers] = useState<number[]>([]);
   const [noticeAction, setNoticeAction] = useState<{ label: string; onClick: () => void } | null>(null);
 
   const showNotice = useCallback((text: string | null, action: { label: string; onClick: () => void } | null = null) => {
@@ -93,6 +96,8 @@ const Popup: React.FC = () => {
   // Trim restored from the session when the popup reopens, applied once that recording's audio
   // has loaded instead of resetting to the full length
   const restoredTrimRef = useRef<{ id: string; start: number; end: number } | null>(null);
+  // A seek requested before the player finished loading
+  const pendingSeekRef = useRef<number | null>(null);
   currentRecordingIdRef.current = currentRecordingId;
   const playIntervalRef = useRef<number | null>(null);
   const playheadAnimationFrameRef = useRef<number | null>(null);
@@ -133,6 +138,7 @@ const Popup: React.FC = () => {
     setCurrentPlayTime(0);
 
     const { metadata } = recording;
+    pendingSeekRef.current = null;
     currentPeaksRef.current = recording.peaks;
     knownDurationRef.current = metadata.duration || 0;
     if (metadata.duration) {
@@ -143,6 +149,7 @@ const Popup: React.FC = () => {
     setRecordingTimestamp(new Date(metadata.timestamp));
     setCurrentRecordingId(metadata.id);
     setCurrentRecordingChannelMode((metadata.channelMode as 'mono' | 'stereo') || 'stereo');
+    setMarkers(recording.markers || []);
     setAudioBlob(recording.audio);
   }, [setAudioBlob, setRecordingDuration]);
 
@@ -289,6 +296,7 @@ const Popup: React.FC = () => {
           const fullRecording = await getRecording(currentRecordingId);
           if (fullRecording) {
             currentPeaksRef.current = fullRecording.peaks;
+            setMarkers(fullRecording.markers || []);
             knownDurationRef.current = fullRecording.metadata.duration || 0;
             setAudioBlob(fullRecording.audio);
             if (loadedAudioDuration === 0 && fullRecording.metadata.duration) {
@@ -367,6 +375,11 @@ const Popup: React.FC = () => {
               setTrimStart(0);
               setTrimEnd(finalDuration || 0);
             }
+            if (pendingSeekRef.current !== null) {
+              audio.currentTime = pendingSeekRef.current;
+              setCurrentPlayTime(pendingSeekRef.current);
+              pendingSeekRef.current = null;
+            }
           });
 
           audio.addEventListener('ended', () => {
@@ -437,6 +450,7 @@ const Popup: React.FC = () => {
       setTrimStart(0);
       setTrimEnd(0);
       setCurrentRecordingChannelMode(undefined);
+      setMarkers([]);
       showNotice(null);
 
       let name = `recording ${formatDate(new Date())}`;
@@ -539,9 +553,13 @@ const Popup: React.FC = () => {
   };
 
   const handleWaveformSeek = (time: number) => {
-    if (audioRef.current && !isRecording) {
+    if (isRecording) return;
+    setCurrentPlayTime(time);
+    // The player may still be loading; it applies the seek once it's ready
+    pendingSeekRef.current = time;
+    if (audioRef.current && audioRef.current.readyState >= 1) {
       audioRef.current.currentTime = time;
-      setCurrentPlayTime(time);
+      pendingSeekRef.current = null;
     }
   };
 
@@ -614,6 +632,46 @@ const Popup: React.FC = () => {
     }
   };
 
+  // While recording the recorder stamps the exact recorded time; afterwards the marker goes at the playhead
+  const handleAddMarker = useCallback(async () => {
+    try {
+      if (isRecording) {
+        const response = await chrome.runtime.sendMessage({ action: 'addMarker' });
+        if (!response?.success) throw new Error(response?.error || 'Could not add marker');
+        setMarkers(current => [...current, response.time]);
+        return;
+      }
+      if (!audioBlob || !currentRecordingId) return;
+      const time = audioRef.current?.currentTime ?? currentPlayTime;
+      if (markers.some(existing => Math.abs(existing - time) < 0.05)) return;
+      const next = [...markers, time].sort((a, b) => a - b);
+      setMarkers(next);
+      await updateRecordingMarkers(currentRecordingId, next);
+    } catch (error) {
+      reportError('add marker', error);
+      showNotice(`Could not add marker: ${errorText(error)}`);
+    }
+  }, [isRecording, audioBlob, currentRecordingId, currentPlayTime, markers, showNotice]);
+
+  const handleRemoveMarker = useCallback((index: number) => {
+    const next = markers.filter((_, i) => i !== index);
+    setMarkers(next);
+    if (currentRecordingId) updateRecordingMarkers(currentRecordingId, next).catch(e => reportError('remove marker', e));
+  }, [markers, currentRecordingId]);
+
+  // M adds a marker on the Recording tab (ignored while typing a name)
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (activeTab !== 'recording' || (event.key !== 'm' && event.key !== 'M')) return;
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      if ((event.target as HTMLElement)?.tagName === 'INPUT') return;
+      event.preventDefault();
+      handleAddMarker();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [activeTab, handleAddMarker]);
+
   const handleRecordingPauseToggle = async () => {
     try {
       if (isPaused) await resumeRecording();
@@ -645,6 +703,8 @@ const Popup: React.FC = () => {
     setCurrentRecordingId(null);
     setCurrentRecordingChannelMode(undefined);
     currentPeaksRef.current = undefined;
+    pendingSeekRef.current = null;
+    setMarkers([]);
     knownDurationRef.current = 0;
     chrome.storage.session.remove(['currentRecordingState']);
   };
@@ -765,6 +825,9 @@ const Popup: React.FC = () => {
               trimEnd={trimEnd}
               onTrimChange={handleTrimChange}
               liveDataRef={liveWaveformDataRef}
+              markers={markers}
+              onMarkerClick={handleWaveformSeek}
+              onMarkerRemove={handleRemoveMarker}
               onZoomChange={handleZoomChange}
             />
           </div>
@@ -802,6 +865,13 @@ const Popup: React.FC = () => {
                 zoom={zoom}
                 canZoomIn={zoom < maxZoom}
                 disabled={isRecording || !audioBlob}
+              />
+            }
+            trailing={
+              <MarkerButton
+                onAddMarker={handleAddMarker}
+                count={markers.length}
+                disabled={!isRecording && !audioBlob}
               />
             }
           />

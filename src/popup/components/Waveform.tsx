@@ -148,6 +148,9 @@ interface WaveformProps {
   trimEnd?: number;
   onTrimChange?: (start: number, end: number) => void;
   liveDataRef?: React.MutableRefObject<LiveWaveform | null>;
+  markers?: number[]; // seconds
+  onMarkerClick?: (time: number) => void;
+  onMarkerRemove?: (index: number) => void;
   onZoomChange?: (multiplier: number) => void;
 }
 
@@ -178,6 +181,9 @@ export const Waveform: React.FC<WaveformProps> = ({
   trimEnd = 0,
   onTrimChange,
   liveDataRef,
+  markers = [],
+  onMarkerClick,
+  onMarkerRemove,
   onZoomChange
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -330,6 +336,20 @@ export const Waveform: React.FC<WaveformProps> = ({
         if (displayPeak === 0) displayPeak = targetPeak; // e.g. popup reopened mid-recording
         else if (targetPeak > displayPeak) displayPeak += (targetPeak - displayPeak) * 0.15;
         drawLayers(ctx, xs, peaks, averages, height, normalizedScale(displayPeak, height), barColor);
+
+        // Markers scroll with the audio: a line with a small flag at the top
+        ctx.fillStyle = theme === 'light' ? 'rgba(0, 0, 0, 0.55)' : 'rgba(255, 255, 255, 0.8)';
+        for (const marker of live.markers || []) {
+          const x = width - (newest - marker * LIVE_LEVELS_PER_SECOND) * levelWidth;
+          if (x < 0 || x > width) continue;
+          ctx.fillRect(Math.round(x), 0, 1, height);
+          ctx.beginPath();
+          ctx.moveTo(x, 0);
+          ctx.lineTo(x + 6, 0);
+          ctx.lineTo(x, 7);
+          ctx.closePath();
+          ctx.fill();
+        }
         ctx.fillStyle = fade;
         ctx.fillRect(0, 0, width * 0.2, height);
       }
@@ -348,7 +368,7 @@ export const Waveform: React.FC<WaveformProps> = ({
         animationFrameRef.current = null;
       }
     };
-  }, [isRecording, liveDataRef, width, height, barColor, backgroundColor]);
+  }, [isRecording, liveDataRef, width, height, barColor, backgroundColor, theme]);
 
   // =====================================================
   // PLAYBACK RENDERING (uses data prop, zoom, scroll, etc.)
@@ -626,6 +646,27 @@ export const Waveform: React.FC<WaveformProps> = ({
           display: 'block'
         }}
       />
+
+      {/* Markers: click the number to jump there, double-click to remove */}
+      {!isRecording && safeDuration > 0 && markers.map((time, index) => {
+        const percent = getXPercentFromTime(time);
+        if (percent < 0 || percent > 100) return null;
+        const minutes = Math.floor(time / 60);
+        const seconds = (time % 60).toFixed(2).padStart(5, '0');
+        return (
+          <div key={`${index}-${time}`} className={`waveform-marker${theme === 'light' ? ' light' : ''}`} style={{ left: `${percent}%` }}>
+            <button
+              className="waveform-marker-label"
+              title={`Marker ${index + 1} · ${minutes}:${seconds}\nClick to jump · double-click to remove`}
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => { e.stopPropagation(); onMarkerClick?.(time); }}
+              onDoubleClick={(e) => { e.stopPropagation(); onMarkerRemove?.(index); }}
+            >
+              {index + 1}
+            </button>
+          </div>
+        );
+      })}
 
       {/* Dimming Overlays */}
       {trimStart > 0 && trimStartPercent > 0 && (

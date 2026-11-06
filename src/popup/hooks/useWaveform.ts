@@ -14,6 +14,7 @@ export interface LiveWaveform {
   levels: number[]; // peak level per window
   avgLevels: number[]; // average level per window
   loudest: number; // loudest level of the whole recording so far
+  markers: number[]; // marker times in recorded seconds
   total: number; // levels produced since the recording started
   receivedAt: number; // performance.now() when `total` last increased, for smooth scrolling
 }
@@ -74,7 +75,7 @@ export function useWaveform(): UseWaveformReturn {
 
     const connect = () => {
       port = chrome.runtime.connect({ name: 'waveform' });
-      port.onMessage.addListener((message: { levels: number[]; avgLevels: number[]; loudest: number; total: number }) => {
+      port.onMessage.addListener((message: { levels: number[]; avgLevels: number[]; loudest: number; markers?: number[]; total: number }) => {
         // Update the REF, not state - avoids React render cycle; Waveform polls it in its rAF loop
         const live = liveWaveformDataRef.current;
         if (!live || message.levels.length !== message.total - live.total) {
@@ -83,6 +84,7 @@ export function useWaveform(): UseWaveformReturn {
             levels: message.levels.slice(-LIVE_LEVELS_KEPT),
             avgLevels: message.avgLevels.slice(-LIVE_LEVELS_KEPT),
             loudest: message.loudest,
+            markers: message.markers || [],
             total: message.total,
             receivedAt: performance.now()
           };
@@ -95,6 +97,7 @@ export function useWaveform(): UseWaveformReturn {
           live.avgLevels.splice(0, live.avgLevels.length - LIVE_LEVELS_KEPT);
         }
         live.loudest = message.loudest;
+        live.markers = message.markers || live.markers;
         live.total = message.total;
         live.receivedAt = performance.now();
       });

@@ -10,6 +10,7 @@ interface TransportControlsProps {
   isLooping: boolean;
   isRecording?: boolean;
   leading?: React.ReactNode; // shown at the left end of the row (zoom controls)
+  trailing?: React.ReactNode; // shown at the right end of the row (marker button)
 }
 
 // Transport row like a recorder's: back to start, play/pause, loop. Play sits in the exact
@@ -22,7 +23,8 @@ export const TransportControls: React.FC<TransportControlsProps> = React.memo(({
   isPlaying,
   isLooping,
   isRecording = false,
-  leading
+  leading,
+  trailing
 }) => {
   const playLabel = isRecording
     ? (isPlaying ? 'Pause recording' : 'Resume recording')
@@ -78,6 +80,7 @@ export const TransportControls: React.FC<TransportControlsProps> = React.memo(({
             <path d="M16 11v1a3 3 0 01-3 3H4M6.5 17.5L4 15l2.5-2.5" />
           </svg>
         </button>
+        {trailing}
       </div>
     </div>
   );
@@ -123,4 +126,27 @@ export const ZoomControls: React.FC<ZoomControlsProps> = React.memo(({ onZoomIn,
       </svg>
     </button>
   </div>
+));
+
+interface MarkerButtonProps {
+  onAddMarker: () => void;
+  count: number;
+  disabled?: boolean;
+}
+
+// Adds a marker at the current recording time, or at the playhead after recording
+export const MarkerButton: React.FC<MarkerButtonProps> = React.memo(({ onAddMarker, count, disabled = false }) => (
+  <button
+    className="control-button small marker-button has-tooltip tooltip-end"
+    onClick={onAddMarker}
+    aria-label="Add marker"
+    data-tooltip={count > 0 ? `Add marker (M) · ${count} so far` : 'Add marker (M)'}
+    disabled={disabled}
+  >
+    <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M5 17.5V3" />
+      <path d="M5 3.5h9.5l-2.2 3.5 2.2 3.5H5" />
+    </svg>
+    {count > 0 && <span className="marker-count">{count}</span>}
+  </button>
 ));
