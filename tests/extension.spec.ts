@@ -102,7 +102,11 @@ test('bug report copies diagnostics without recording content', async ({ context
   await expect(page.getByRole('button', { name: 'Open form' })).toBeVisible();
 
   const report: string = await page.evaluate(() => (window as any).__copied);
-  expect(report).toContain('Extension version: 1.0.6');
+  expect(report).toContain('Version: 1.0.6');
+  for (const heading of ['[Browser and OS]', '[Device]', '[Capabilities]', '[Recording state]', '[Recordings and storage]', '[Settings]', '[Recent activity (oldest first)]']) {
+    expect(report).toContain(heading);
+  }
   expect(report).toContain('Recordings: 0');
-  expect(report).toMatch(/Recent errors:/);
+  expect(report).toContain('MediaRecorder Opus/WebM: yes');
+  expect(report).not.toMatch(/unavailable:/);
 });
