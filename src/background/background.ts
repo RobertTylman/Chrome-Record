@@ -1,4 +1,4 @@
-import { appendDiagnostic, logError } from '../popup/utils/diagnostics';
+import { appendDiagnostic, formatBytes, formatSeconds, logError, logEvent } from '../popup/utils/diagnostics';
 
 // Background service worker: obtains the tab capture stream id and coordinates the offscreen
 // document that records. Audio never passes through here — the offscreen document writes it
@@ -28,9 +28,10 @@ interface Message {
   streamId?: string;
   tabId?: number;
   details?: { name?: string; channelMode?: string };
-  recording?: { id: string };
+  recording?: { id: string; duration?: number; size?: number };
   context?: string;
   message?: string;
+  level?: string;
   reason?: string;
 }
 
@@ -89,7 +90,7 @@ chrome.runtime.onMessage.addListener((message: Message, sender: chrome.runtime.M
 
   // Diagnostics from the offscreen document, which has no chrome.storage
   if (message.action === 'logDiagnostic') {
-    appendDiagnostic(message.context || 'Recorder', message.message || '').catch(() => { });
+    appendDiagnostic(message.context || 'Recorder', message.message || '', message.level === 'info' ? 'info' : 'error').catch(() => { });
     return;
   }
 
@@ -99,6 +100,7 @@ chrome.runtime.onMessage.addListener((message: Message, sender: chrome.runtime.M
       if (message.recording?.id) {
         // The popup may be closed; it loads this recording the next time it opens
         await chrome.storage.local.set({ autoSavedRecordingId: message.recording.id, autoSavedReason: message.reason });
+        logEvent('Recording', `Auto-stopped (${message.reason === 'ended' ? 'tab closed' : 'length limit'}) and saved: ${describeRecording(message.recording)}`);
       }
       await chrome.offscreen.closeDocument().catch(() => { });
       await chrome.storage.local.remove(RECORDING_STATE_KEYS);
@@ -213,6 +215,12 @@ async function startRecordingFromStreamId(streamId: string, details: { name?: st
     recordingPausedAt: null,
     recordingPausedTotal: 0
   });
+  logEvent('Recording', 'Started');
+}
+
+function describeRecording(recording: { duration?: number; size?: number } | null | undefined): string {
+  if (!recording) return 'no audio captured';
+  return `${formatSeconds(recording.duration || 0)}, ${formatBytes(recording.size || 0)}`;
 }
 
 async function stopAndSave(details: { name?: string; channelMode?: string }) {
@@ -227,6 +235,7 @@ async function stopAndSave(details: { name?: string; channelMode?: string }) {
     if (!response?.success) {
       throw new Error(response?.error || 'Failed to save recording');
     }
+    logEvent('Recording', `Stopped and saved: ${describeRecording(response.recording)}`);
     return response.recording;
   } finally {
     await chrome.offscreen.closeDocument().catch(() => { });
@@ -243,12 +252,14 @@ async function setPaused(pause: boolean) {
   if (pause && !state.recordingPausedAt) {
     await sendToOffscreen('PAUSE_RECORDING');
     await chrome.storage.local.set({ recordingPausedAt: now });
+    logEvent('Recording', 'Paused');
   } else if (!pause && state.recordingPausedAt) {
     await sendToOffscreen('RESUME_RECORDING');
     await chrome.storage.local.set({
       recordingPausedAt: null,
       recordingPausedTotal: (state.recordingPausedTotal || 0) + (now - state.recordingPausedAt)
     });
+    logEvent('Recording', `Resumed after ${formatSeconds((now - state.recordingPausedAt) / 1000)} paused`);
   }
 
   const updated = await chrome.storage.local.get(['recordingPausedAt', 'recordingPausedTotal']);

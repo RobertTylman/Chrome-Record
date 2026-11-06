@@ -23,11 +23,11 @@ import {
 
 import { Waveform } from './components/Waveform';
 import { AudioInfo } from './components/AudioInfo';
-import { RecordingControls } from './components/RecordingControls';
+import { TransportControls, ZoomControls } from './components/RecordingControls';
 import { RecordButton } from './components/RecordButton';
 import { RecentRecordings } from './components/RecentRecordings';
 import { Preferences } from './components/Preferences';
-import { buildDiagnosticsReport, installErrorCapture, logError } from './utils/diagnostics';
+import { buildDiagnosticsReport, formatBytes, formatSeconds, installErrorCapture, logError, logEvent } from './utils/diagnostics';
 import './styles/popup.css';
 
 installErrorCapture('Popup');
@@ -153,6 +153,7 @@ const Popup: React.FC = () => {
       if (state?.isRecording) return;
       const recovered = await recoverInterruptedRecordings(state?.sessionId);
       if (recovered.length > 0) {
+        logEvent('Recovery', `Recovered ${recovered.length} interrupted recording(s): ${recovered.map(r => formatSeconds(r.duration || 0)).join(', ')}`);
         const newest = await getRecording(recovered[recovered.length - 1].id);
         if (newest) loadRecording(newest);
       }
@@ -588,8 +589,10 @@ const Popup: React.FC = () => {
     setIsExporting(true);
     try {
       const options = await getExportOptions();
+      const exportStarted = performance.now();
       const blob = await exportAudio(audioBlob, { ...options, start, end, duration });
       downloadAudio(blob, exportFilename(recordingName, options.format));
+      logEvent('Download', `${options.format.toUpperCase()} from popup: ${formatSeconds(duration)}${start || end ? ' (trimmed)' : ''} -> ${formatBytes(blob.size)} in ${Math.round(performance.now() - exportStarted)} ms`);
     } catch (error: any) {
       reportError('download', error);
       showNotice(`Download failed: ${errorText(error)}`);
@@ -748,7 +751,7 @@ const Popup: React.FC = () => {
             <Waveform
               data={waveformData?.data || null}
               avgData={waveformData?.avg || null}
-              height={110}
+              height={104}
               zoom={zoom}
               currentTime={isRecording ? recordingDuration : currentPlayTime}
               duration={isRecording ? recordingDuration : totalDuration}
@@ -767,25 +770,37 @@ const Popup: React.FC = () => {
           </div>
 
           {!isRecording && audioBlob && (
-            <div className="playback-info">
+            <div className="waveform-toolbar">
               <span className="playback-hint">
                 <svg className="playback-hint-icon" width="11" height="11" viewBox="0 0 16 16" fill="currentColor" aria-label="Click">
                   <path d="M3 1.5v11.8l3.1-3 2.1 4.9 2-0.9-2.1-4.8h4.4z" />
                 </svg>
                 to seek
-                <span className="playback-hint-separator">•</span>
+                <span className="playback-hint-gap" />
                 <svg className="playback-hint-icon" width="13" height="11" viewBox="0 0 18 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-label="Scroll">
                   <path d="M1.5 6h15M5 2.5L1.5 6 5 9.5M13 2.5L16.5 6 13 9.5" />
                 </svg>
                 to pan & zoom
               </span>
+              <ZoomControls
+                onZoomIn={handleZoomIn}
+                onZoomOut={handleZoomOut}
+                zoom={zoom}
+                canZoomIn={zoom < maxZoom}
+              />
             </div>
           )}
 
-          <div className="time-indicators">
-            <span className="time-label"><span className="time-label-name">Time</span> {formatTime(displayTime)}</span>
-            <span className="time-label"><span className="time-label-name">Start</span> {formatTime(displayStartTime)}</span>
-            <span className="time-label"><span className="time-label-name">Length</span> {formatTime(displayDuration)}</span>
+          <div className="time-readout">
+            <div className="time-readout-side">
+              <span className="time-readout-label">Start</span>
+              <span className="time-readout-value">{formatTime(displayStartTime)}</span>
+            </div>
+            <div className="time-readout-main" aria-label="Current time">{formatTime(displayTime)}</div>
+            <div className="time-readout-side end">
+              <span className="time-readout-label">Length</span>
+              <span className="time-readout-value">{formatTime(displayDuration)}</span>
+            </div>
           </div>
 
           {isRecording && remainingRecordingSeconds <= LIMIT_WARNING_SECONDS && (
@@ -794,9 +809,7 @@ const Popup: React.FC = () => {
             </div>
           )}
 
-          <RecordingControls
-            onZoomIn={handleZoomIn}
-            onZoomOut={handleZoomOut}
+          <TransportControls
             onPlay={isRecording ? handleRecordingPauseToggle : handlePlay}
             onPause={isRecording ? handleRecordingPauseToggle : handlePlay}
             onLoop={handleLoop}
@@ -804,8 +817,6 @@ const Popup: React.FC = () => {
             isPlaying={isRecording ? !isPaused : isPlaying}
             isLooping={isLooping}
             isRecording={isRecording}
-            zoom={zoom}
-            canZoomIn={zoom < maxZoom}
           />
 
           <div className="record-button-container">

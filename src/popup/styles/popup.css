@@ -670,8 +670,8 @@ body:not(.light-mode):not(.midnight-mode):not(.forest-mode):not(.rainbow-mode) .
 .recording-content {
   display: flex;
   flex-direction: column;
-  padding: var(--space-3) var(--gutter) var(--space-2);
-  gap: var(--space-2);
+  padding: 10px var(--gutter) var(--space-2);
+  gap: 6px;
   flex: 1;
   overflow: hidden;
   min-height: 0;
@@ -682,7 +682,7 @@ body:not(.light-mode):not(.midnight-mode):not(.forest-mode):not(.rainbow-mode) .
   justify-content: space-between;
   align-items: center;
   gap: var(--space-2);
-  min-height: 32px;
+  min-height: 28px;
   font-size: var(--text-md);
   color: var(--text-primary);
   flex-shrink: 0;
@@ -728,7 +728,7 @@ body:not(.light-mode):not(.midnight-mode):not(.forest-mode):not(.rainbow-mode) .
 /* Waveform */
 .waveform-container {
   width: 100%;
-  height: 110px;
+  height: 104px;
   background-color: var(--bg-secondary);
   border-radius: var(--radius-md);
   overflow: hidden;
@@ -757,73 +757,111 @@ body:not(.light-mode):not(.midnight-mode):not(.forest-mode):not(.rainbow-mode) .
   color: rgba(0, 0, 0, 0.6);
 }
 
-.playback-info {
-  text-align: center;
-  font-size: 10px;
-  color: var(--text-secondary);
-  letter-spacing: 0.6px;
-  text-transform: uppercase;
+.waveform-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  height: 24px;
+  margin-top: -2px;
   flex-shrink: 0;
 }
 
 .playback-hint {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
+  font-size: 9px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
 }
 
 .playback-hint-icon {
   flex-shrink: 0;
 }
 
-.playback-hint-separator {
-  margin: 0 var(--space-1);
+.playback-hint-gap {
+  width: var(--space-3);
 }
 
-/* Time readout */
-.time-indicators {
+.zoom-controls {
   display: flex;
-  justify-content: space-between;
-  width: 100%;
-  font-size: var(--text-sm);
-  flex-shrink: 0;
+  align-items: center;
+  gap: 2px;
+  margin-right: calc(-1 * var(--space-1));
 }
 
-.time-label {
-  color: var(--text-primary);
-  font-variant-numeric: tabular-nums;
-}
-
-.time-label-name {
-  color: var(--text-secondary);
-  margin-right: var(--space-1);
-}
-
-/* Playback controls */
-.recording-controls {
+/* Time readout panel: current time large in the middle, trim start and length on either side */
+.time-readout {
   display: grid;
   grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  gap: var(--space-2);
-  margin: 0 calc(-1 * var(--space-1));
-  flex-shrink: 0;
   width: 100%;
+  padding: 6px var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-secondary);
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
 }
 
-.zoom-group,
-.transport-group {
+.light-mode .time-readout,
+.light-mode .waveform-container {
+  background-color: #f7f7f8;
+}
+
+.time-readout-side {
   display: flex;
-  align-items: center;
-}
-
-/* Equal-width outer columns keep the transport exactly centered under the record button */
-.zoom-group {
+  flex-direction: column;
   gap: 2px;
   justify-self: start;
 }
 
-.transport-group {
-  gap: var(--space-3);
+.time-readout-side.end {
+  justify-self: end;
+  align-items: flex-end;
+}
+
+.time-readout-label {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+}
+
+.time-readout-value {
+  font-size: var(--text-md);
+  color: var(--text-primary);
+}
+
+.time-readout-main {
+  font-size: 20px;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: -0.3px;
+  color: var(--text-primary);
+}
+
+/* Transport: play in the exact center column, so it lines up with the record button below;
+   auto margins center the row vertically between the time readout and the record button */
+.transport-controls {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  column-gap: 28px;
+  margin: auto 0;
+  flex-shrink: 0;
+  width: 100%;
+}
+
+.transport-side.start {
+  justify-self: end;
+}
+
+.transport-side.end {
+  justify-self: start;
 }
 
 /* Tooltips: shown above the button after a short hover */
@@ -887,8 +925,8 @@ body:not(.light-mode):not(.midnight-mode):not(.forest-mode):not(.rainbow-mode) .
   color: var(--text-secondary);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-  /* Fixed width (fits "1000%") so zooming never moves the − and + buttons */
-  width: 44px;
+  /* Fixed width (fits "4096×") so zooming never moves the − and + buttons */
+  width: 40px;
   flex-shrink: 0;
   text-align: center;
 }
@@ -913,6 +951,12 @@ body:not(.light-mode):not(.midnight-mode):not(.forest-mode):not(.rainbow-mode) .
 
 .control-button:active {
   transform: scale(0.94);
+}
+
+.control-button.small {
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-sm);
 }
 
 .control-button.active {
@@ -942,15 +986,14 @@ body:not(.light-mode):not(.midnight-mode):not(.forest-mode):not(.rainbow-mode) .
   display: flex;
   justify-content: center;
   align-items: center;
-  padding: var(--space-2) 0;
+  padding: 0 0 var(--space-1);
   flex-shrink: 0;
-  margin-top: auto;
   width: 100%;
 }
 
 .record-button {
-  width: 72px;
-  height: 72px;
+  width: 64px;
+  height: 64px;
   border-radius: 50%;
   border: 3px solid #ff4d4d;
   background-color: #ef1c1c;
@@ -980,20 +1023,20 @@ body:not(.light-mode):not(.midnight-mode):not(.forest-mode):not(.rainbow-mode) .
 }
 
 .record-button-inner {
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
   background-color: #ffffff;
 }
 
 /* Stop button (while recording) */
 .record-button.stop-button {
-  border-radius: 18px;
+  border-radius: 16px;
 }
 
 .stop-button-inner {
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   background-color: #ffffff;
   border-radius: 4px;
 }

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { exportAudio } from '../utils/audioConverter';
 import { downloadAudio } from '../utils/audioUtils';
 import { exportFilename, getExportOptions, openExportTab, shouldExportInTab } from '../utils/exportUtils';
-import { logError } from '../utils/diagnostics';
+import { formatBytes, formatSeconds, logError, logEvent } from '../utils/diagnostics';
 import { getAllRecordingsMetadata, getRecording, deleteRecording, RecordingMetadata, StoredRecording } from '../utils/storageManager';
 
 type Recording = RecordingMetadata;
@@ -89,8 +89,10 @@ export const RecentRecordings: React.FC<RecentRecordingsProps> = ({ onSelectReco
       }
       // Always use current format preference (not the stored format)
       const options = await getExportOptions();
+      const exportStarted = performance.now();
       const blob = await exportAudio(fullRecording.audio, { ...options, duration: recording.duration });
       downloadAudio(blob, exportFilename(recording.name, options.format));
+      logEvent('Download', `${options.format.toUpperCase()} from My Recordings: ${formatSeconds(recording.duration)} -> ${formatBytes(blob.size)} in ${Math.round(performance.now() - exportStarted)} ms`);
     } catch (error: any) {
       logError('My Recordings: download', error);
       onError?.(`Download failed: ${error?.message || 'Unknown error'}`);

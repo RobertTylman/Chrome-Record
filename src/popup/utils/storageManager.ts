@@ -343,6 +343,21 @@ async function listChunkSessions(): Promise<string[]> {
   });
 }
 
+// What is waiting to be recovered, for diagnostics: interrupted sessions in the chunk store and the
+// legacy (v1.0.5) temp blob. Reads blob sizes only, not audio data.
+export async function getPendingRecoverySummary(): Promise<{ sessions: number; chunks: number; bytes: number; legacyTempBytes: number }> {
+  const db = await openDB();
+  const transaction = db.transaction([CHUNK_STORE_NAME, TEMP_STORE_NAME], 'readonly');
+  const chunks: RecordingChunk[] = await requestToPromise(transaction.objectStore(CHUNK_STORE_NAME).getAll());
+  const legacy = await requestToPromise(transaction.objectStore(TEMP_STORE_NAME).get(LEGACY_TEMP_BLOB_KEY));
+  return {
+    sessions: new Set(chunks.map(c => c.sessionId)).size,
+    chunks: chunks.length,
+    bytes: chunks.reduce((sum, c) => sum + (c.audio?.size || 0), 0),
+    legacyTempBytes: legacy instanceof Blob ? legacy.size : 0
+  };
+}
+
 // Save recordings that were interrupted (browser crash, extension update, popup closed during save)
 // as "recovered" recordings. Call only when no recording is in progress, excluding the active session.
 export async function recoverInterruptedRecordings(activeSessionId?: string): Promise<RecordingMetadata[]> {

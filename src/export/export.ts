@@ -5,7 +5,7 @@ import { exportAudio, estimateExportSize } from '../popup/utils/audioConverter';
 import { downloadAudio } from '../popup/utils/audioUtils';
 import { exportFilename, getExportOptions } from '../popup/utils/exportUtils';
 import { getRecording, RecordingMetadata } from '../popup/utils/storageManager';
-import { installErrorCapture, logError } from '../popup/utils/diagnostics';
+import { formatSeconds, installErrorCapture, logError, logEvent } from '../popup/utils/diagnostics';
 
 installErrorCapture('Export tab');
 
@@ -92,6 +92,7 @@ async function run() {
       const recording = await getRecording(metadata.id);
       if (!recording) throw new Error('Recording not found');
 
+      const exportStarted = performance.now();
       const blob = await exportAudio(recording.audio, {
         ...options,
         start: recordings.length === 1 ? start : undefined,
@@ -103,6 +104,8 @@ async function run() {
           document.title = `${Math.round(overall * 100)}% - Exporting`;
         }
       });
+
+      logEvent('Export tab', `${options.format.toUpperCase()}: ${formatSeconds(metadata.duration || 0)}${start || end ? ' (trimmed)' : ''} -> ${formatBytes(blob.size)} in ${Math.round(performance.now() - exportStarted)} ms`);
 
       let filename = exportFilename(metadata.name, options.format);
       if (zip) {
