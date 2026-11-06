@@ -98,8 +98,8 @@ test('bug report copies diagnostics without recording content', async ({ context
   });
   await page.goto(`chrome-extension://${extensionId}/popup.html`);
   await page.getByRole('button', { name: /Report a bug/ }).click();
-  await expect(page.getByText(/Diagnostics copied to your clipboard/)).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Open bug form' })).toBeVisible();
+  await expect(page.getByText(/Diagnostics copied/)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Open form' })).toBeVisible();
 
   const report: string = await page.evaluate(() => (window as any).__copied);
   expect(report).toContain('Extension version: 1.0.6');

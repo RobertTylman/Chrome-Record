@@ -6,6 +6,8 @@ import { formatTime, formatDate, downloadAudio } from './utils/audioUtils';
 import { DEFAULT_AUDIO_FORMAT, getFileExtension } from './utils/formatUtils';
 import { exportAudio } from './utils/audioConverter';
 import { exportFilename, getExportOptions, openExportTab, shouldExportInTab } from './utils/exportUtils';
+import { maxZoomFor } from './utils/zoom';
+import { waveformColors } from './utils/theme';
 import {
   migrateFromChromeStorage,
   updateRecordingName,
@@ -88,6 +90,9 @@ const Popup: React.FC = () => {
   const currentPeaksRef = useRef<WaveformPeaks | undefined>(undefined);
   const knownDurationRef = useRef(0);
   const currentRecordingIdRef = useRef<string | null>(null);
+  // Trim restored from the session when the popup reopens, applied once that recording's audio
+  // has loaded instead of resetting to the full length
+  const restoredTrimRef = useRef<{ id: string; start: number; end: number } | null>(null);
   currentRecordingIdRef.current = currentRecordingId;
   const playIntervalRef = useRef<number | null>(null);
   const playheadAnimationFrameRef = useRef<number | null>(null);
@@ -233,6 +238,9 @@ const Popup: React.FC = () => {
         if (savedState.currentRecordingChannelMode) setCurrentRecordingChannelMode(savedState.currentRecordingChannelMode);
         if (savedState.trimStart !== undefined) setTrimStart(savedState.trimStart);
         if (savedState.trimEnd !== undefined && savedState.trimEnd > 0) setTrimEnd(savedState.trimEnd);
+        if (savedState.currentRecordingId && (savedState.trimStart > 0 || savedState.trimEnd > 0)) {
+          restoredTrimRef.current = { id: savedState.currentRecordingId, start: savedState.trimStart || 0, end: savedState.trimEnd || 0 };
+        }
         if (savedState.loadedAudioDuration !== undefined && savedState.loadedAudioDuration > 0) setLoadedAudioDuration(savedState.loadedAudioDuration);
       }
     });
@@ -347,8 +355,17 @@ const Popup: React.FC = () => {
             const finalDuration = (audioDuration && isFinite(audioDuration)) ? audioDuration : (knownDurationRef.current || recordingDuration);
             setLoadedAudioDuration(finalDuration || 0);
             setCurrentPlayTime(audio.currentTime || 0);
-            setTrimStart(0);
-            setTrimEnd(finalDuration || 0);
+            const restored = restoredTrimRef.current;
+            if (restored && restored.id === recordingId) {
+              restoredTrimRef.current = null;
+              setTrimStart(restored.start);
+              setTrimEnd(restored.end > 0 && restored.end <= (finalDuration || 0) ? restored.end : (finalDuration || 0));
+              setCurrentPlayTime(restored.start);
+              audio.currentTime = restored.start;
+            } else {
+              setTrimStart(0);
+              setTrimEnd(finalDuration || 0);
+            }
           });
 
           audio.addEventListener('ended', () => {
@@ -360,7 +377,7 @@ const Popup: React.FC = () => {
           audio.load();
           setCurrentPlayTime(0);
           setStartTime(0);
-          setTrimStart(0);
+          if (restoredTrimRef.current?.id !== recordingId) setTrimStart(0);
         } catch (error) {
           if (!cancelled) reportError('analyze audio', error);
         }
@@ -537,9 +554,10 @@ const Popup: React.FC = () => {
     }
   };
 
-  const handleZoomIn = useCallback(() => setZoom(z => Math.min(z * 2, 8)), []);
+  const maxZoom = maxZoomFor(loadedAudioDuration > 0 ? loadedAudioDuration : recordingDuration);
+  const handleZoomIn = useCallback(() => setZoom(z => Math.min(z * 2, maxZoom)), [maxZoom]);
   const handleZoomOut = useCallback(() => setZoom(z => Math.max(z / 2, 1)), []);
-  const handleZoomChange = useCallback((multiplier: number) => setZoom(z => Math.max(1, Math.min(10, z * multiplier))), []);
+  const handleZoomChange = useCallback((multiplier: number) => setZoom(z => Math.max(1, Math.min(maxZoom, z * multiplier))), [maxZoom]);
 
   const handleTrimChange = (start: number, end: number) => {
     setTrimStart(start);
@@ -586,7 +604,7 @@ const Popup: React.FC = () => {
     try {
       const report = await buildDiagnosticsReport();
       await navigator.clipboard.writeText(report);
-      showNotice('Diagnostics copied to your clipboard (no audio or recording content). Please paste them into the description on the bug form.', { label: 'Open bug form', onClick: openForm });
+      showNotice('Diagnostics copied — paste them into the bug form.', { label: 'Open form', onClick: openForm });
     } catch (error) {
       reportError('copy diagnostics', error);
       openForm();
@@ -660,15 +678,7 @@ const Popup: React.FC = () => {
   const displayStartTime = isRecording ? 0 : effectiveStart;
   const remainingRecordingSeconds = Math.max(0, MAX_RECORDING_SECONDS - recordingDuration);
 
-  const getThemeColor = () => {
-    switch (theme) {
-      case 'light': return '#3b82f6';
-      case 'midnight': return '#38bdf8';
-      case 'forest': return '#fbbf24';
-      case 'rainbow': return '#4ade80';
-      default: return '#4ade80';
-    }
-  };
+  const { bar: waveformBarColor, background: waveformBackground } = waveformColors(theme);
 
   return (
     <div className={`popup-container ${theme !== 'dark' ? `${theme}-mode` : ''}`} style={{ position: 'relative' }}>
@@ -745,8 +755,8 @@ const Popup: React.FC = () => {
               onSeek={handleWaveformSeek}
               isRecording={isRecording}
               channelMode={currentRecordingChannelMode || (preferences.channelMode as 'mono' | 'stereo' | undefined)}
-              barColor={getThemeColor()}
-              backgroundColor={theme === 'light' ? '#f5f5f5' : theme === 'midnight' ? '#1e293b' : theme === 'forest' ? '#064e3b' : theme === 'rainbow' ? '#1a1a1a' : '#1f1f1f'}
+              barColor={waveformBarColor}
+              backgroundColor={waveformBackground}
               theme={theme}
               trimStart={trimStart}
               trimEnd={trimEnd}
@@ -758,7 +768,17 @@ const Popup: React.FC = () => {
 
           {!isRecording && audioBlob && (
             <div className="playback-info">
-              <span className="playback-hint">Click to Seek • Scroll to Pan & Zoom</span>
+              <span className="playback-hint">
+                <svg className="playback-hint-icon" width="11" height="11" viewBox="0 0 16 16" fill="currentColor" aria-label="Click">
+                  <path d="M3 1.5v11.8l3.1-3 2.1 4.9 2-0.9-2.1-4.8h4.4z" />
+                </svg>
+                to seek
+                <span className="playback-hint-separator">•</span>
+                <svg className="playback-hint-icon" width="13" height="11" viewBox="0 0 18 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-label="Scroll">
+                  <path d="M1.5 6h15M5 2.5L1.5 6 5 9.5M13 2.5L16.5 6 13 9.5" />
+                </svg>
+                to pan & zoom
+              </span>
             </div>
           )}
 
@@ -785,6 +805,7 @@ const Popup: React.FC = () => {
             isLooping={isLooping}
             isRecording={isRecording}
             zoom={zoom}
+            canZoomIn={zoom < maxZoom}
           />
 
           <div className="record-button-container">

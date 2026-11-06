@@ -10,7 +10,13 @@ const LIVE_LEVEL_MS = 1000 / LIVE_LEVELS_PER_SECOND;
 // Loudness below this (out of 255, about -16 dB) is not scaled up to fill the box,
 // so near-silence stays small instead of turning into amplified noise
 const MIN_NORMALIZE_PEAK = 40;
-const PEAK_LAYER_ALPHA = 0.45;
+// Opacity at the outer (peak) edge; it rises smoothly to solid at the average-loudness core
+const OUTER_EDGE_ALPHA = 0.3;
+// More bands on taller canvases so the steps stay invisible
+const gradientBands = (height: number) => Math.round(Math.min(48, Math.max(10, height / 32)));
+// While recording, the scale assumes peaks of at least this level (out of 255, about -4 dB) and only
+// grows if the recording gets louder, so the waveform keeps a steady size
+const LIVE_SCALE_FLOOR = 160;
 
 function withAlpha(color: string, alpha: number): string {
   const match = /^#([0-9a-f]{6})$/i.exec(color);
@@ -59,10 +65,24 @@ function fillEnvelope(ctx: CanvasRenderingContext2D, xs: number[], values: numbe
   ctx.fill();
 }
 
-// Two layers: peaks as a lighter outer shape, average loudness as a solid core
+// Peaks fade into a solid core of average loudness. Bands between the two outlines follow the
+// waveform's shape; each band's opacity is chosen so the stacked result ramps evenly from
+// OUTER_EDGE_ALPHA at the peaks to fully solid at the core.
 function drawLayers(ctx: CanvasRenderingContext2D, xs: number[], peaks: number[], averages: number[] | null, height: number, scale: number, color: string) {
-  fillEnvelope(ctx, xs, peaks, height, scale, averages ? withAlpha(color, PEAK_LAYER_ALPHA) : color);
-  if (averages) fillEnvelope(ctx, xs, averages, height, scale, color);
+  if (!averages) {
+    fillEnvelope(ctx, xs, peaks, height, scale, color);
+    return;
+  }
+  const bands = gradientBands(height);
+  let coveredAlpha = 0; // opacity already painted by the bands outside this one
+  for (let band = bands; band >= 0; band--) {
+    const t = band / bands; // 1 = peak outline, 0 = average outline
+    const targetAlpha = 1 - t * (1 - OUTER_EDGE_ALPHA);
+    const alpha = coveredAlpha >= 1 ? 1 : 1 - (1 - targetAlpha) / (1 - coveredAlpha);
+    const values = peaks.map((peak, i) => averages[i] + (peak - averages[i]) * t);
+    fillEnvelope(ctx, xs, values, height, scale, withAlpha(color, Math.min(1, Math.max(0, alpha))));
+    coveredAlpha = targetAlpha;
+  }
 }
 
 // Value of `data` over [t0, t1) in data-index units. Zoomed out (many points per pixel) it is the
@@ -279,8 +299,8 @@ export const Waveform: React.FC<WaveformProps> = ({
     const fade = ctx.createLinearGradient(0, 0, width * 0.2, 0);
     fade.addColorStop(0, withAlpha(backgroundColor, 1));
     fade.addColorStop(1, withAlpha(backgroundColor, 0));
-    // Loudest level on screen, eased so the scale grows quickly and relaxes slowly
-    let displayPeak = MIN_NORMALIZE_PEAK;
+    // Scale from the loudest level of the whole recording: it never shrinks, and grows smoothly
+    let displayPeak = 0;
 
     const drawFrame = () => {
       if (!isActive) return;
@@ -301,14 +321,14 @@ export const Waveform: React.FC<WaveformProps> = ({
         const xs: number[] = [];
         const peaks: number[] = [];
         const averages: number[] = [];
-        let visiblePeak = 0;
         for (let k = Math.max(0, live.levels.length - visibleLevels - 2); k < live.levels.length; k++) {
           xs.push(width - (newest - (first + k)) * levelWidth);
           peaks.push(live.levels[k]);
           averages.push(live.avgLevels[k] ?? 0);
-          visiblePeak = Math.max(visiblePeak, live.levels[k]);
         }
-        displayPeak += (visiblePeak - displayPeak) * (visiblePeak > displayPeak ? 0.3 : 0.03);
+        const targetPeak = Math.max(LIVE_SCALE_FLOOR, live.loudest || 0);
+        if (displayPeak === 0) displayPeak = targetPeak; // e.g. popup reopened mid-recording
+        else if (targetPeak > displayPeak) displayPeak += (targetPeak - displayPeak) * 0.15;
         drawLayers(ctx, xs, peaks, averages, height, normalizedScale(displayPeak, height), barColor);
         ctx.fillStyle = fade;
         ctx.fillRect(0, 0, width * 0.2, height);
@@ -516,7 +536,7 @@ export const Waveform: React.FC<WaveformProps> = ({
   }, [isPanning, zoom]);
 
   // Handle wheel for scrolling and zooming
-  const handleWheel = useCallback((e: React.WheelEvent) => {
+  const handleWheel = useCallback((e: WheelEvent) => {
     const isPinch = e.ctrlKey;
     const isVerticalDominant = Math.abs(e.deltaY) > Math.abs(e.deltaX);
     const isHorizontalDominant = Math.abs(e.deltaX) >= Math.abs(e.deltaY);
@@ -541,6 +561,15 @@ export const Waveform: React.FC<WaveformProps> = ({
       setScrollOffset(prev => Math.max(0, Math.min(maxOffset, prev + scrollAmount)));
     }
   }, [zoom, onZoomChange]);
+
+  // React's onWheel is passive, so preventDefault() there can't stop the page from scrolling
+  // while zooming; listen directly with passive: false instead
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    container.addEventListener('wheel', handleWheel, { passive: false });
+    return () => container.removeEventListener('wheel', handleWheel);
+  }, [handleWheel]);
 
   // Calculate handle positions
   const safeDuration = (duration > 0 && isFinite(duration)) ? duration : 0;
@@ -569,7 +598,6 @@ export const Waveform: React.FC<WaveformProps> = ({
       ref={containerRef}
       onClick={handleClick}
       onMouseDown={handlePanMouseDown}
-      onWheel={handleWheel}
       style={{
         width: '100%',
         height: '100%',

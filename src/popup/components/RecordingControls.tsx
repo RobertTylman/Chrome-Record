@@ -1,4 +1,5 @@
 import React from 'react';
+import { formatZoom } from '../utils/zoom';
 
 interface RecordingControlsProps {
   onZoomIn: () => void;
@@ -11,8 +12,11 @@ interface RecordingControlsProps {
   isLooping: boolean;
   isRecording?: boolean;
   zoom: number;
+  canZoomIn?: boolean;
 }
 
+// Toolbar laid out like a recorder: zoom on the left, transport (back to start, play/pause,
+// loop) centered. Every button shows a tooltip on hover.
 export const RecordingControls: React.FC<RecordingControlsProps> = React.memo(({
   onZoomIn,
   onZoomOut,
@@ -23,77 +27,89 @@ export const RecordingControls: React.FC<RecordingControlsProps> = React.memo(({
   isPlaying,
   isLooping,
   isRecording = false,
-  zoom
+  zoom,
+  canZoomIn = true
 }) => {
+  const playLabel = isRecording
+    ? (isPlaying ? 'Pause recording' : 'Resume recording')
+    : (isPlaying ? 'Pause' : 'Play');
+
   return (
     <div className="recording-controls">
       <div className="zoom-group">
         <button
-          className="control-button"
+          className="control-button has-tooltip tooltip-start"
           onClick={onZoomOut}
-          title="Zoom Out"
-          disabled={isRecording}
+          aria-label="Zoom out"
+          data-tooltip="Zoom out"
+          disabled={isRecording || zoom <= 1}
         >
-          <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
-            <circle cx="10" cy="10" r="8" stroke="currentColor" strokeWidth="2" fill="none" />
-            <line x1="6" y1="10" x2="14" y2="10" stroke="currentColor" strokeWidth="2" />
+          <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+            <circle cx="10" cy="10" r="7.5" />
+            <line x1="6.5" y1="10" x2="13.5" y2="10" />
           </svg>
         </button>
 
-        <span className="zoom-level">{Math.round(zoom * 100)}%</span>
+        <span className="zoom-level" aria-label="Zoom level">{formatZoom(zoom)}</span>
 
         <button
-          className="control-button"
+          className="control-button has-tooltip"
           onClick={onZoomIn}
-          title="Zoom In"
-          disabled={isRecording}
+          aria-label="Zoom in"
+          data-tooltip="Zoom in"
+          disabled={isRecording || !canZoomIn}
         >
-          <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
-            <circle cx="10" cy="10" r="8" stroke="currentColor" strokeWidth="2" fill="none" />
-            <line x1="10" y1="6" x2="10" y2="14" stroke="currentColor" strokeWidth="2" />
-            <line x1="6" y1="10" x2="14" y2="10" stroke="currentColor" strokeWidth="2" />
+          <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+            <circle cx="10" cy="10" r="7.5" />
+            <line x1="6.5" y1="10" x2="13.5" y2="10" />
+            <line x1="10" y1="6.5" x2="10" y2="13.5" />
           </svg>
         </button>
       </div>
 
-      <button
-        className={`control-button play-button ${isPlaying ? 'playing' : ''}`}
-        onClick={isPlaying ? onPause : onPlay}
-        title={isRecording ? (isPlaying ? 'Pause recording' : 'Resume recording') : (isPlaying ? 'Pause' : 'Play')}
-      >
-        {isPlaying ? (
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
-            <rect x="6" y="4" width="4" height="16" />
-            <rect x="14" y="4" width="4" height="16" />
-          </svg>
-        ) : (
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M8 5v14l11-7z" />
-          </svg>
-        )}
-      </button>
-
-      <div className="playback-group">
+      <div className="transport-group">
         <button
-          className="control-button"
+          className="control-button has-tooltip"
           onClick={onReset}
-          title="Return to Start"
+          aria-label="Back to start"
+          data-tooltip="Back to start"
           disabled={isRecording}
         >
-          <svg width="20" height="20" viewBox="0 0 52 52" fill="currentColor">
-            <path d="M21.5,40.6,7.9,27.1a1.57,1.57,0,0,1,0-2.2L21.5,11.4a1.57,1.57,0,0,1,2.2,0l2.2,2.2a1.57,1.57,0,0,1,0,2.2l-9.4,9.1a1.57,1.57,0,0,0,0,2.2l9.3,9.1a1.57,1.57,0,0,1,0,2.2l-2.2,2.2A1.66,1.66,0,0,1,21.5,40.6Z" />
-            <path d="M39.6,40.6,25.8,27.1a1.57,1.57,0,0,1,0-2.2L39.6,11.4a1.57,1.57,0,0,1,2.2,0L44,13.6a1.57,1.57,0,0,1,0,2.2l-9.4,9.1a1.57,1.57,0,0,0,0,2.2l9.3,9.1a1.57,1.57,0,0,1,0,2.2l-2.2,2.2A1.66,1.66,0,0,1,39.6,40.6Z" />
+          <svg width="18" height="18" viewBox="0 0 20 20" fill="currentColor">
+            <rect x="3.5" y="4" width="2" height="12" rx="1" />
+            <path d="M16 4.9v10.2a.9.9 0 01-1.4.75L7.4 10.75a.9.9 0 010-1.5l7.2-5.1a.9.9 0 011.4.75z" />
           </svg>
         </button>
 
         <button
-          className={`control-button ${isLooping ? 'active' : ''}`}
+          className={`control-button play-button has-tooltip ${isPlaying ? 'playing' : ''}`}
+          onClick={isPlaying ? onPause : onPlay}
+          aria-label={playLabel}
+          data-tooltip={playLabel}
+        >
+          {isPlaying ? (
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+              <rect x="6" y="4.5" width="4" height="15" rx="1.2" />
+              <rect x="14" y="4.5" width="4" height="15" rx="1.2" />
+            </svg>
+          ) : (
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M8 5.6v12.8a1 1 0 001.5.86l10.2-6.4a1 1 0 000-1.72L9.5 4.74A1 1 0 008 5.6z" />
+            </svg>
+          )}
+        </button>
+
+        <button
+          className={`control-button has-tooltip ${isLooping ? 'active' : ''}`}
           onClick={onLoop}
-          title="Loop"
+          aria-label="Loop"
+          aria-pressed={isLooping}
+          data-tooltip={isLooping ? 'Loop: on' : 'Loop: off'}
           disabled={isRecording}
         >
-          <svg width="20" height="20" viewBox="0 0 256 256" fill="currentColor">
-            <path d="M24.849 72.002a8 8 0 0 1 8.027-7.983l189.787.462c4.42.01 8.004 3.61 8.004 8.026v111.986c0 4.422-3.587 8.04-8.008 8.08l-42.661.39A4.04 4.04 0 0 0 176 197v22.002c0 2.208-1.39 2.878-3.115 1.488l-35.31-28.463c-5.157-4.156-5.11-10.846.099-14.935l35.174-27.616c1.74-1.367 3.152-.685 3.152 1.534v21.482a4 4 0 0 0 3.992 4.009h30.683a4.02 4.02 0 0 0 4.013-3.991l.437-83.012a7.98 7.98 0 0 0-7.952-8.02l-158.807-.454c-4.415-.013-8.008 3.56-8.025 7.975l-.31 79.504a7.962 7.962 0 0 0 7.967 7.998H108a4.003 4.003 0 0 1 3.999 3.994v8.512a3.968 3.968 0 0 1-4.001 3.971l-75.502-.431c-4.417-.026-7.987-3.634-7.974-8.048l.326-112.496z" fillRule="evenodd" />
+          <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M4 9V8a3 3 0 013-3h9M13.5 2.5L16 5l-2.5 2.5" />
+            <path d="M16 11v1a3 3 0 01-3 3H4M6.5 17.5L4 15l2.5-2.5" />
           </svg>
         </button>
       </div>
@@ -101,4 +117,3 @@ export const RecordingControls: React.FC<RecordingControlsProps> = React.memo(({
     </div>
   );
 });
-

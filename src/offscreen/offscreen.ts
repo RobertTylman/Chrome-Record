@@ -38,6 +38,7 @@ interface RecordingSession {
   // have been produced in total
   levels: number[];
   avgLevels: number[];
+  loudestLevel: number; // loudest live level of the whole recording, for a stable display scale
   levelCount: number;
   stopping: Promise<RecordingMetadata | null> | null;
   // Fallback length limit when the peak meter is unavailable
@@ -97,6 +98,7 @@ async function autoStop(current: RecordingSession, reason: AutoStopReason) {
 function pushLevel(current: RecordingSession, max: number, avg: number) {
   current.levels.push(max);
   current.avgLevels.push(avg);
+  if (max > current.loudestLevel) current.loudestLevel = max;
   current.levelCount++;
   if (current.levels.length > LIVE_LEVELS_KEPT) {
     current.levels.splice(0, current.levels.length - LIVE_LEVELS_SENT);
@@ -128,7 +130,12 @@ chrome.runtime.onConnect.addListener((port) => {
     const fresh = lastSentCount < 0 ? LIVE_LEVELS_SENT : session.levelCount - lastSentCount;
     lastSentCount = session.levelCount;
     const count = Math.min(fresh, LIVE_LEVELS_SENT);
-    port.postMessage({ levels: session.levels.slice(-count), avgLevels: session.avgLevels.slice(-count), total: session.levelCount });
+    port.postMessage({
+      levels: session.levels.slice(-count),
+      avgLevels: session.avgLevels.slice(-count),
+      loudest: session.loudestLevel,
+      total: session.levelCount
+    });
   }, LIVE_WAVEFORM_INTERVAL_MS);
   port.onDisconnect.addListener(() => clearInterval(interval));
 });
@@ -217,6 +224,7 @@ async function startRecording(streamId: string, sessionId: string, details: Reco
     peakCount: 0,
     levels: [],
     avgLevels: [],
+    loudestLevel: 0,
     levelCount: 0,
     stopping: null,
     limitTimer: null,
