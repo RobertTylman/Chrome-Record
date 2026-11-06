@@ -737,6 +737,7 @@ const Popup: React.FC = () => {
           <div className="waveform-container">
             <Waveform
               data={waveformData?.data || null}
+              avgData={waveformData?.avg || null}
               height={110}
               zoom={zoom}
               currentTime={isRecording ? recordingDuration : currentPlayTime}

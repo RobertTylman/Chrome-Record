@@ -37,9 +37,13 @@ export interface RecordingChunk {
   audio: Blob;
   peakMax: Uint8Array;
   peakAvg: Uint8Array;
+  peakRate?: number; // peaks per second; absent on chunks written before rates were recorded (20)
 }
 
-export const PEAKS_PER_SECOND = 20;
+// Stored waveform resolution. Higher values give more detail when zoomed in (100/s is about
+// 720 KB per hour of recording). Each chunk records its rate, so changing this is safe.
+export const PEAKS_PER_SECOND = 100;
+const LEGACY_PEAKS_PER_SECOND = 20;
 
 // Live waveform levels while recording (display only, not stored)
 export const LIVE_LEVELS_PER_SECOND = 60;
@@ -295,7 +299,8 @@ export async function finalizeRecordingSession(
       offset += chunk.peakMax.length;
     }
 
-    const duration = peakCount > 0 ? peakCount / PEAKS_PER_SECOND : (details.fallbackDuration || 0);
+    const peakRate = chunks[0]?.peakRate || LEGACY_PEAKS_PER_SECOND;
+    const duration = peakCount > 0 ? peakCount / peakRate : (details.fallbackDuration || 0);
     // Session ids are the recording start time in ms
     const startedAt = Number(sessionId);
     metadata = await saveRecording({
@@ -306,7 +311,7 @@ export async function finalizeRecordingSession(
       format: 'webm',
       channelMode: details.channelMode || 'stereo',
       mimeType: 'audio/webm'
-    }, audio, peakCount > 0 ? { rate: PEAKS_PER_SECOND, max, avg } : undefined);
+    }, audio, peakCount > 0 ? { rate: peakRate, max, avg } : undefined);
   }
 
   const deleteTransaction = db.transaction([CHUNK_STORE_NAME], 'readwrite');

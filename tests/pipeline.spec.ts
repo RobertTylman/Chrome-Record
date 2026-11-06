@@ -3,6 +3,7 @@ import http from 'http';
 import { AddressInfo } from 'net';
 import path from 'path';
 import { test, expect, DIST } from './fixtures';
+import { PEAKS_PER_SECOND } from '../src/popup/utils/storageManager';
 
 // The harness is served from 127.0.0.1, a secure context, so WebCodecs and AudioWorklet are available
 const FILES: Record<string, string> = {
@@ -72,7 +73,7 @@ test('records with pause excluded from duration', () => {
   const r = result('record');
   expect(r.duration).toBeGreaterThan(4.6);
   expect(r.duration).toBeLessThan(5.4);
-  expect(r.peaks).toBe(Math.round(r.duration * 20));
+  expect(r.peaks).toBe(Math.round(r.duration * PEAKS_PER_SECOND));
   expect(r.listed).toBe(1);
 });
 
@@ -95,7 +96,8 @@ test('saved WebM is seekable', () => {
 
 test('peaks computed from the file match recorded peaks', () => {
   const r = result('computed-peaks');
-  expect(Math.abs(r.computed - r.recorded)).toBeLessThanOrEqual(3);
+  // Within 150 ms
+  expect(Math.abs(r.computed - r.recorded)).toBeLessThanOrEqual(PEAKS_PER_SECOND * 0.15);
 });
 
 for (const [name, expected] of Object.entries(EXPECTED)) {

@@ -2,11 +2,15 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { LiveWaveform } from '../hooks/useWaveform';
 import { LIVE_LEVELS_PER_SECOND } from '../utils/storageManager';
 
-const HALF_HEIGHT = 0.42; // tallest peak reaches 84% of the canvas height
-const MIN_HALF_HEIGHT = 1; // silence still shows as a thin line
-const POINT_SPACING = 2; // px between envelope points in the saved view
+const EDGE_PADDING = 3; // px left free above and below the loudest point
+const MIN_HALF_HEIGHT = 0.75; // silence still shows as a hairline
+const POINT_SPACING = 1; // px between outline points in the saved view
 const LIVE_WINDOW_SECONDS = 5; // recent audio shown while recording
 const LIVE_LEVEL_MS = 1000 / LIVE_LEVELS_PER_SECOND;
+// Loudness below this (out of 255, about -16 dB) is not scaled up to fill the box,
+// so near-silence stays small instead of turning into amplified noise
+const MIN_NORMALIZE_PEAK = 40;
+const PEAK_LAYER_ALPHA = 0.45;
 
 function withAlpha(color: string, alpha: number): string {
   const match = /^#([0-9a-f]{6})$/i.exec(color);
@@ -15,12 +19,27 @@ function withAlpha(color: string, alpha: number): string {
   return `rgba(${n >> 16}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
 }
 
-// Mirrored, smoothly curved outline through (x, value) points, filled with a soft vertical gradient
-function fillEnvelope(ctx: CanvasRenderingContext2D, xs: number[], values: number[], height: number, color: string) {
+// Pixels per level unit, so that `peak` reaches the top and bottom of the box
+function normalizedScale(peak: number, height: number): number {
+  return (height / 2 - EDGE_PADDING) / Math.max(peak, MIN_NORMALIZE_PEAK);
+}
+
+const peakCache = new WeakMap<Uint8Array, number>();
+function loudest(data: Uint8Array): number {
+  let peak = peakCache.get(data);
+  if (peak === undefined) {
+    peak = 0;
+    for (let i = 0; i < data.length; i++) if (data[i] > peak) peak = data[i];
+    peakCache.set(data, peak);
+  }
+  return peak;
+}
+
+// Mirrored, smoothly curved outline through (x, value) points
+function fillEnvelope(ctx: CanvasRenderingContext2D, xs: number[], values: number[], height: number, scale: number, fillStyle: string) {
   const count = xs.length;
   if (count === 0) return;
   const mid = height / 2;
-  const scale = (height * HALF_HEIGHT) / 255;
   const h = values.map(v => Math.max(MIN_HALF_HEIGHT, v * scale));
   const last = count - 1;
 
@@ -36,45 +55,64 @@ function fillEnvelope(ctx: CanvasRenderingContext2D, xs: number[], values: numbe
   }
   ctx.lineTo(xs[0], mid + h[0]);
   ctx.closePath();
-
-  const gradient = ctx.createLinearGradient(0, mid - height * HALF_HEIGHT, 0, mid + height * HALF_HEIGHT);
-  gradient.addColorStop(0, withAlpha(color, 0.5));
-  gradient.addColorStop(0.5, color);
-  gradient.addColorStop(1, withAlpha(color, 0.5));
-  ctx.fillStyle = gradient;
+  ctx.fillStyle = fillStyle;
   ctx.fill();
 }
 
-// Saved waveform for data[start, start + length). Zoomed out, each point is the loudest value in its
-// stretch of time; zoomed in past the data's resolution, points are interpolated so the outline
-// stays smooth instead of turning into blocks.
-function drawSavedWaveform(ctx: CanvasRenderingContext2D, data: Uint8Array, start: number, length: number, width: number, height: number, color: string) {
+// Two layers: peaks as a lighter outer shape, average loudness as a solid core
+function drawLayers(ctx: CanvasRenderingContext2D, xs: number[], peaks: number[], averages: number[] | null, height: number, scale: number, color: string) {
+  fillEnvelope(ctx, xs, peaks, height, scale, averages ? withAlpha(color, PEAK_LAYER_ALPHA) : color);
+  if (averages) fillEnvelope(ctx, xs, averages, height, scale, color);
+}
+
+// Value of `data` over [t0, t1) in data-index units. Zoomed out (many points per pixel) it is the
+// max or mean of the range; zoomed in past the data's resolution it follows a smooth
+// (Catmull-Rom) curve through the points, so the outline has no corners or blocks.
+function sampleRange(data: Uint8Array, t0: number, t1: number, mode: 'max' | 'mean'): number {
+  if (t1 - t0 >= 1) {
+    const from = Math.max(0, Math.floor(t0));
+    const to = Math.min(data.length, Math.ceil(t1));
+    let max = 0;
+    let sum = 0;
+    for (let j = from; j < to; j++) {
+      if (data[j] > max) max = data[j];
+      sum += data[j];
+    }
+    return mode === 'max' ? max : (to > from ? sum / (to - from) : 0);
+  }
+  // Each data point covers [i, i + 1); curve through the point centers
+  const at = (i: number) => data[Math.max(0, Math.min(data.length - 1, i))];
+  const position = (t0 + t1) / 2 - 0.5;
+  const i = Math.floor(position);
+  const t = position - i;
+  const p0 = at(i - 1), p1 = at(i), p2 = at(i + 1), p3 = at(i + 2);
+  const value = 0.5 * (2 * p1 + (p2 - p0) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t * t + (3 * p1 - p0 - 3 * p2 + p3) * t * t * t);
+  return Math.max(0, Math.min(255, value));
+}
+
+// Saved waveform for data[start, start + length), normalized so the recording's loudest point
+// reaches the edges of the box (the same scale at every zoom level)
+function drawSavedWaveform(ctx: CanvasRenderingContext2D, data: Uint8Array, avgData: Uint8Array | null, start: number, length: number, width: number, height: number, color: string) {
   if (data.length === 0 || length <= 0) return;
   const perPixel = length / width;
-  const at = (i: number) => data[Math.max(0, Math.min(data.length - 1, i))];
+  const averages = avgData && avgData.length === data.length ? avgData : null;
   const xs: number[] = [];
-  const values: number[] = [];
+  const peaks: number[] = [];
+  const means: number[] = [];
 
   for (let x = 0; x <= width + POINT_SPACING; x += POINT_SPACING) {
     const t0 = start + (x - POINT_SPACING / 2) * perPixel;
     const t1 = start + (x + POINT_SPACING / 2) * perPixel;
-    let value = 0;
-    if (t1 - t0 >= 1) {
-      for (let j = Math.max(0, Math.floor(t0)); j < Math.min(data.length, Math.ceil(t1)); j++) value = Math.max(value, data[j]);
-    } else {
-      // Each data point covers [i, i + 1); interpolate between point centers
-      const position = (t0 + t1) / 2 - 0.5;
-      const i = Math.floor(position);
-      value = at(i) + (at(i + 1) - at(i)) * (position - i);
-    }
     xs.push(Math.min(x, width));
-    values.push(value);
+    peaks.push(sampleRange(data, t0, t1, 'max'));
+    if (averages) means.push(sampleRange(averages, t0, t1, 'mean'));
   }
-  fillEnvelope(ctx, xs, values, height, color);
+  drawLayers(ctx, xs, peaks, averages ? means : null, height, normalizedScale(loudest(data), height), color);
 }
 
 interface WaveformProps {
-  data: Uint8Array | null;
+  data: Uint8Array | null; // peak level per stored window
+  avgData?: Uint8Array | null; // average level per stored window
   width?: number;
   height?: number;
   barColor?: string;
@@ -104,6 +142,7 @@ const trimHandleColors = {
 
 export const Waveform: React.FC<WaveformProps> = ({
   data,
+  avgData = null,
   width = 600,
   height = 200,
   barColor = '#ff9500',
@@ -201,7 +240,7 @@ export const Waveform: React.FC<WaveformProps> = ({
 
     if (visibleDataLength <= 0) return;
 
-    drawSavedWaveform(ctx, data, dataStartIndex, visibleDataLength, width, height, barColor);
+    drawSavedWaveform(ctx, data, avgData, dataStartIndex, visibleDataLength, width, height, barColor);
   }, [data, width, height, barColor, backgroundColor, zoom, scrollOffset, duration, getVisibleRange]);
 
   // Smooth playback position indicator with cached waveform for performance
@@ -240,6 +279,8 @@ export const Waveform: React.FC<WaveformProps> = ({
     const fade = ctx.createLinearGradient(0, 0, width * 0.2, 0);
     fade.addColorStop(0, withAlpha(backgroundColor, 1));
     fade.addColorStop(1, withAlpha(backgroundColor, 0));
+    // Loudest level on screen, eased so the scale grows quickly and relaxes slowly
+    let displayPeak = MIN_NORMALIZE_PEAK;
 
     const drawFrame = () => {
       if (!isActive) return;
@@ -258,12 +299,17 @@ export const Waveform: React.FC<WaveformProps> = ({
         const newest = live.total - 1 + progress;
         const first = live.total - live.levels.length;
         const xs: number[] = [];
-        const values: number[] = [];
+        const peaks: number[] = [];
+        const averages: number[] = [];
+        let visiblePeak = 0;
         for (let k = Math.max(0, live.levels.length - visibleLevels - 2); k < live.levels.length; k++) {
           xs.push(width - (newest - (first + k)) * levelWidth);
-          values.push(live.levels[k]);
+          peaks.push(live.levels[k]);
+          averages.push(live.avgLevels[k] ?? 0);
+          visiblePeak = Math.max(visiblePeak, live.levels[k]);
         }
-        fillEnvelope(ctx, xs, values, height, barColor);
+        displayPeak += (visiblePeak - displayPeak) * (visiblePeak > displayPeak ? 0.3 : 0.03);
+        drawLayers(ctx, xs, peaks, averages, height, normalizedScale(displayPeak, height), barColor);
         ctx.fillStyle = fade;
         ctx.fillRect(0, 0, width * 0.2, height);
       }
@@ -333,7 +379,7 @@ export const Waveform: React.FC<WaveformProps> = ({
       ctx.fillStyle = backgroundColor;
       ctx.fillRect(0, 0, width, height);
 
-      drawSavedWaveform(ctx, data, dataStartIndex, visibleDataLength, width, height, barColor);
+      drawSavedWaveform(ctx, data, avgData, dataStartIndex, visibleDataLength, width, height, barColor);
 
       // Cache the result for playback performance
       cache.imageData = ctx.getImageData(0, 0, width, height);

@@ -769,23 +769,18 @@ body:not(.light-mode):not(.midnight-mode):not(.forest-mode):not(.rainbow-mode) .
   display: grid;
   grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  gap: var(--space-4);
+  gap: var(--space-2);
   flex-shrink: 0;
   width: 100%;
 }
 
-.zoom-group {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  justify-self: end;
-}
-
+.zoom-group,
 .playback-group {
+  /* Both sides of the play button are the same width, buttons spread evenly within each */
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  justify-self: start;
+  justify-content: space-evenly;
+  justify-self: stretch;
 }
 
 .zoom-level {
@@ -793,7 +788,9 @@ body:not(.light-mode):not(.midnight-mode):not(.forest-mode):not(.rainbow-mode) .
   color: var(--text-secondary);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-  min-width: 36px;
+  /* Fixed width (fits "1000%") so zooming never moves the − and + buttons */
+  width: 44px;
+  flex-shrink: 0;
   text-align: center;
 }
 

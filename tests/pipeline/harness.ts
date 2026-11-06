@@ -62,7 +62,8 @@ async function record(sessionId: string, stopAt: number, pause?: [number, number
   recorder.ondataavailable = (e) => {
     const chunk = {
       sessionId, seq: seq++, audio: e.data,
-      peakMax: Uint8Array.from(pendingMax.splice(0)), peakAvg: Uint8Array.from(pendingAvg.splice(0))
+      peakMax: Uint8Array.from(pendingMax.splice(0)), peakAvg: Uint8Array.from(pendingAvg.splice(0)),
+      peakRate: PEAKS_PER_SECOND
     };
     chain = chain.then(() => appendRecordingChunk(chunk));
   };

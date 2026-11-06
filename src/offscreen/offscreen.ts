@@ -34,8 +34,10 @@ interface RecordingSession {
   analyser: AnalyserNode;
   details: RecordingDetails;
   peakCount: number;
-  // Recent levels (0-255) for the live waveform, and how many have been produced in total
+  // Recent levels (0-255) for the live waveform: peak and average per window, and how many
+  // have been produced in total
   levels: number[];
+  avgLevels: number[];
   levelCount: number;
   stopping: Promise<RecordingMetadata | null> | null;
   // Fallback length limit when the peak meter is unavailable
@@ -92,10 +94,14 @@ async function autoStop(current: RecordingSession, reason: AutoStopReason) {
   }
 }
 
-function pushLevel(current: RecordingSession, level: number) {
-  current.levels.push(level);
+function pushLevel(current: RecordingSession, max: number, avg: number) {
+  current.levels.push(max);
+  current.avgLevels.push(avg);
   current.levelCount++;
-  if (current.levels.length > LIVE_LEVELS_KEPT) current.levels.splice(0, current.levels.length - LIVE_LEVELS_SENT);
+  if (current.levels.length > LIVE_LEVELS_KEPT) {
+    current.levels.splice(0, current.levels.length - LIVE_LEVELS_SENT);
+    current.avgLevels.splice(0, current.avgLevels.length - LIVE_LEVELS_SENT);
+  }
 }
 
 // The popup opens a port while it is showing a recording in progress
@@ -109,14 +115,20 @@ chrome.runtime.onConnect.addListener((port) => {
     if (!session.peakNode) {
       session.analyser.getFloatTimeDomainData(samples);
       let max = 0;
-      for (let i = 0; i < samples.length; i++) max = Math.max(max, Math.abs(samples[i]));
-      pushLevel(session, toByte(max));
+      let sum = 0;
+      for (let i = 0; i < samples.length; i++) {
+        const abs = Math.abs(samples[i]);
+        max = Math.max(max, abs);
+        sum += abs;
+      }
+      pushLevel(session, toByte(max), toByte(sum / samples.length));
     }
     if (session.levelCount === lastSentCount) return;
     // History on the first send, then only the levels produced since
     const fresh = lastSentCount < 0 ? LIVE_LEVELS_SENT : session.levelCount - lastSentCount;
     lastSentCount = session.levelCount;
-    port.postMessage({ levels: session.levels.slice(-Math.min(fresh, LIVE_LEVELS_SENT)), total: session.levelCount });
+    const count = Math.min(fresh, LIVE_LEVELS_SENT);
+    port.postMessage({ levels: session.levels.slice(-count), avgLevels: session.avgLevels.slice(-count), total: session.levelCount });
   }, LIVE_WAVEFORM_INTERVAL_MS);
   port.onDisconnect.addListener(() => clearInterval(interval));
 });
@@ -204,6 +216,7 @@ async function startRecording(streamId: string, sessionId: string, details: Reco
     details,
     peakCount: 0,
     levels: [],
+    avgLevels: [],
     levelCount: 0,
     stopping: null,
     limitTimer: null,
@@ -219,8 +232,7 @@ async function startRecording(streamId: string, sessionId: string, details: Reco
       const max = toByte(event.data.max);
       const avg = toByte(event.data.avg);
       if (event.data.live) {
-        // Same value as the saved waveform: (average + max) / 2
-        pushLevel(current, Math.round((max + avg) / 2));
+        pushLevel(current, max, avg);
         return;
       }
       pendingMax.push(max);
@@ -243,7 +255,8 @@ async function startRecording(streamId: string, sessionId: string, details: Reco
       seq: current.seq++,
       audio: event.data,
       peakMax: Uint8Array.from(current.pendingMax.splice(0)),
-      peakAvg: Uint8Array.from(current.pendingAvg.splice(0))
+      peakAvg: Uint8Array.from(current.pendingAvg.splice(0)),
+      peakRate: PEAKS_PER_SECOND
     };
     current.writeChain = current.writeChain
       .then(() => appendRecordingChunk(chunk))

@@ -3,14 +3,16 @@ import { computeWaveformPeaks } from '../utils/audioConverter';
 import { WaveformPeaks } from '../utils/storageManager';
 
 interface WaveformData {
-  data: Uint8Array;
+  data: Uint8Array; // peak level per stored window
+  avg: Uint8Array; // average level per stored window
   sampleRate: number;
   duration: number;
 }
 
 // Recent loudness levels while recording (LIVE_LEVELS_PER_SECOND), newest last
 export interface LiveWaveform {
-  levels: number[];
+  levels: number[]; // peak level per window
+  avgLevels: number[]; // average level per window
   total: number; // levels produced since the recording started
   receivedAt: number; // performance.now() when `total` last increased, for smooth scrolling
 }
@@ -21,13 +23,6 @@ interface UseWaveformReturn {
   analyzeAudio: (audioBlob: Blob, peaks?: WaveformPeaks) => Promise<WaveformPeaks | null>;
   clearWaveform: () => void;
   listenForRemoteUpdates: () => () => void;
-}
-
-// One value per stored peak window, (average + max) / 2, at full resolution so zooming shows detail
-function peaksToLevels(peaks: WaveformPeaks): Uint8Array {
-  const levels = new Uint8Array(peaks.max.length);
-  for (let i = 0; i < levels.length; i++) levels[i] = (peaks.max[i] + peaks.avg[i]) >> 1;
-  return levels;
 }
 
 // Live levels kept in the popup: a little more than the visible window
@@ -50,7 +45,8 @@ export function useWaveform(): UseWaveformReturn {
       if (analysisId !== analysisIdRef.current) return null;
 
       setWaveformData({
-        data: peaksToLevels(resolvedPeaks),
+        data: resolvedPeaks.max,
+        avg: resolvedPeaks.avg,
         sampleRate: resolvedPeaks.rate,
         duration: resolvedPeaks.max.length / resolvedPeaks.rate
       });
@@ -77,16 +73,25 @@ export function useWaveform(): UseWaveformReturn {
 
     const connect = () => {
       port = chrome.runtime.connect({ name: 'waveform' });
-      port.onMessage.addListener((message: { levels: number[]; total: number }) => {
+      port.onMessage.addListener((message: { levels: number[]; avgLevels: number[]; total: number }) => {
         // Update the REF, not state - avoids React render cycle; Waveform polls it in its rAF loop
         const live = liveWaveformDataRef.current;
         if (!live || message.levels.length !== message.total - live.total) {
           // First message, or a fresh history after reconnecting
-          liveWaveformDataRef.current = { levels: message.levels.slice(-LIVE_LEVELS_KEPT), total: message.total, receivedAt: performance.now() };
+          liveWaveformDataRef.current = {
+            levels: message.levels.slice(-LIVE_LEVELS_KEPT),
+            avgLevels: message.avgLevels.slice(-LIVE_LEVELS_KEPT),
+            total: message.total,
+            receivedAt: performance.now()
+          };
           return;
         }
         live.levels.push(...message.levels);
-        if (live.levels.length > LIVE_LEVELS_KEPT) live.levels.splice(0, live.levels.length - LIVE_LEVELS_KEPT);
+        live.avgLevels.push(...message.avgLevels);
+        if (live.levels.length > LIVE_LEVELS_KEPT) {
+          live.levels.splice(0, live.levels.length - LIVE_LEVELS_KEPT);
+          live.avgLevels.splice(0, live.avgLevels.length - LIVE_LEVELS_KEPT);
+        }
         live.total = message.total;
         live.receivedAt = performance.now();
       });
