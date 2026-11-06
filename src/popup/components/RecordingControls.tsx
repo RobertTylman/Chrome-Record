@@ -9,6 +9,7 @@ interface TransportControlsProps {
   isPlaying: boolean;
   isLooping: boolean;
   isRecording?: boolean;
+  leading?: React.ReactNode; // shown at the left end of the row (zoom controls)
 }
 
 // Transport row like a recorder's: back to start, play/pause, loop. Play sits in the exact
@@ -20,7 +21,8 @@ export const TransportControls: React.FC<TransportControlsProps> = React.memo(({
   onReset,
   isPlaying,
   isLooping,
-  isRecording = false
+  isRecording = false,
+  leading
 }) => {
   const playLabel = isRecording
     ? (isPlaying ? 'Pause recording' : 'Resume recording')
@@ -28,18 +30,21 @@ export const TransportControls: React.FC<TransportControlsProps> = React.memo(({
 
   return (
     <div className="transport-controls">
-      <button
-        className="control-button transport-side start has-tooltip"
-        onClick={onReset}
-        aria-label="Back to start"
-        data-tooltip="Back to start"
-        disabled={isRecording}
-      >
-        <svg width="18" height="18" viewBox="0 0 20 20" fill="currentColor">
-          <rect x="3.5" y="4" width="2" height="12" rx="1" />
-          <path d="M16 4.9v10.2a.9.9 0 01-1.4.75L7.4 10.75a.9.9 0 010-1.5l7.2-5.1a.9.9 0 011.4.75z" />
-        </svg>
-      </button>
+      <div className="transport-left">
+        {leading}
+        <button
+          className="control-button transport-side start has-tooltip"
+          onClick={onReset}
+          aria-label="Back to start"
+          data-tooltip="Back to start"
+          disabled={isRecording}
+        >
+          <svg width="21" height="21" viewBox="0 0 20 20" fill="currentColor">
+            <rect x="3.5" y="4" width="2" height="12" rx="1" />
+            <path d="M16 4.9v10.2a.9.9 0 01-1.4.75L7.4 10.75a.9.9 0 010-1.5l7.2-5.1a.9.9 0 011.4.75z" />
+          </svg>
+        </button>
+      </div>
 
       <button
         className={`control-button play-button has-tooltip ${isPlaying ? 'playing' : ''}`}
@@ -59,19 +64,21 @@ export const TransportControls: React.FC<TransportControlsProps> = React.memo(({
         )}
       </button>
 
-      <button
-        className={`control-button transport-side end has-tooltip ${isLooping ? 'active' : ''}`}
-        onClick={onLoop}
-        aria-label="Loop"
-        aria-pressed={isLooping}
-        data-tooltip={isLooping ? 'Loop: on' : 'Loop: off'}
-        disabled={isRecording}
-      >
-        <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M4 9V8a3 3 0 013-3h9M13.5 2.5L16 5l-2.5 2.5" />
-          <path d="M16 11v1a3 3 0 01-3 3H4M6.5 17.5L4 15l2.5-2.5" />
-        </svg>
-      </button>
+      <div className="transport-right">
+        <button
+          className={`control-button transport-side end has-tooltip ${isLooping ? 'active' : ''}`}
+          onClick={onLoop}
+          aria-label="Loop"
+          aria-pressed={isLooping}
+          data-tooltip={isLooping ? 'Loop: on' : 'Loop: off'}
+          disabled={isRecording}
+        >
+          <svg width="21" height="21" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M4 9V8a3 3 0 013-3h9M13.5 2.5L16 5l-2.5 2.5" />
+            <path d="M16 11v1a3 3 0 01-3 3H4M6.5 17.5L4 15l2.5-2.5" />
+          </svg>
+        </button>
+      </div>
     </div>
   );
 });
@@ -81,17 +88,18 @@ interface ZoomControlsProps {
   onZoomOut: () => void;
   zoom: number;
   canZoomIn?: boolean;
+  disabled?: boolean;
 }
 
-// Compact zoom controls for the row under the waveform
-export const ZoomControls: React.FC<ZoomControlsProps> = React.memo(({ onZoomIn, onZoomOut, zoom, canZoomIn = true }) => (
+// Compact zoom controls (shown at the left of the transport row)
+export const ZoomControls: React.FC<ZoomControlsProps> = React.memo(({ onZoomIn, onZoomOut, zoom, canZoomIn = true, disabled = false }) => (
   <div className="zoom-controls">
     <button
-      className="control-button small has-tooltip"
+      className="control-button small has-tooltip tooltip-start"
       onClick={onZoomOut}
       aria-label="Zoom out"
       data-tooltip="Zoom out"
-      disabled={zoom <= 1}
+      disabled={disabled || zoom <= 1}
     >
       <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
         <circle cx="10" cy="10" r="7.5" />
@@ -102,11 +110,11 @@ export const ZoomControls: React.FC<ZoomControlsProps> = React.memo(({ onZoomIn,
     <span className="zoom-level" aria-label="Zoom level">{formatZoom(zoom)}</span>
 
     <button
-      className="control-button small has-tooltip tooltip-end"
+      className="control-button small has-tooltip"
       onClick={onZoomIn}
       aria-label="Zoom in"
       data-tooltip="Zoom in"
-      disabled={!canZoomIn}
+      disabled={disabled || !canZoomIn}
     >
       <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
         <circle cx="10" cy="10" r="7.5" />

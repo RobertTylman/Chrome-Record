@@ -52,7 +52,7 @@ body {
   --text-md: 13px;
   --header-height: 52px;
   --tabs-height: 40px;
-  --footer-height: 36px;
+  --footer-height: 26px;
   --latest-marker: #4ade80;
   --danger: #ef4444;
 }
@@ -759,11 +759,14 @@ body:not(.light-mode):not(.midnight-mode):not(.forest-mode):not(.rainbow-mode) .
 
 .waveform-toolbar {
   display: flex;
-  justify-content: space-between;
+  justify-content: center;
   align-items: center;
-  height: 24px;
-  margin-top: -2px;
+  height: 18px;
   flex-shrink: 0;
+}
+
+.waveform-toolbar.is-hidden {
+  visibility: hidden;
 }
 
 .playback-hint {
@@ -788,8 +791,8 @@ body:not(.light-mode):not(.midnight-mode):not(.forest-mode):not(.rainbow-mode) .
 .zoom-controls {
   display: flex;
   align-items: center;
-  gap: 2px;
-  margin-right: calc(-1 * var(--space-1));
+  gap: 0;
+  margin-left: calc(-1 * var(--space-1));
 }
 
 /* Time readout panel: current time large in the middle, trim start and length on either side */
@@ -856,12 +859,20 @@ body:not(.light-mode):not(.midnight-mode):not(.forest-mode):not(.rainbow-mode) .
   width: 100%;
 }
 
-.transport-side.start {
-  justify-self: end;
+.transport-left,
+.transport-right {
+  display: flex;
+  align-items: center;
+  justify-self: stretch;
 }
 
-.transport-side.end {
-  justify-self: start;
+/* Zoom at the far left, back to start next to play */
+.transport-left {
+  justify-content: space-between;
+}
+
+.transport-right {
+  justify-content: flex-start;
 }
 
 /* Tooltips: shown above the button after a short hover */
@@ -926,7 +937,7 @@ body:not(.light-mode):not(.midnight-mode):not(.forest-mode):not(.rainbow-mode) .
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   /* Fixed width (fits "4096×") so zooming never moves the − and + buttons */
-  width: 40px;
+  width: 34px;
   flex-shrink: 0;
   text-align: center;
 }
@@ -951,6 +962,11 @@ body:not(.light-mode):not(.midnight-mode):not(.forest-mode):not(.rainbow-mode) .
 
 .control-button:active {
   transform: scale(0.94);
+}
+
+.control-button.transport-side {
+  width: 40px;
+  height: 40px;
 }
 
 .control-button.small {
@@ -1388,7 +1404,8 @@ body:not(.light-mode):not(.midnight-mode):not(.forest-mode):not(.rainbow-mode) .
   justify-content: space-between;
   align-items: center;
   height: var(--footer-height);
-  padding: 0 var(--space-2);
+  /* Links sit close to the edges (about 8px with the button padding) */
+  padding: 0 2px;
   border-top: 1px solid var(--border-color);
   flex-shrink: 0;
 }
@@ -1398,9 +1415,10 @@ body:not(.light-mode):not(.midnight-mode):not(.forest-mode):not(.rainbow-mode) .
   background: none;
   border: none;
   color: var(--text-secondary);
-  font-size: var(--text-xs);
+  font-size: 10px;
+  line-height: 1;
   cursor: pointer;
-  padding: var(--space-1) var(--space-2);
+  padding: 3px 6px;
   border-radius: var(--radius-sm);
   transition: color 0.15s, background-color 0.15s;
 }
@@ -1414,15 +1432,16 @@ body:not(.light-mode):not(.midnight-mode):not(.forest-mode):not(.rainbow-mode) .
 .download-all-button {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   background: none;
   border: none;
   border-radius: var(--radius-sm);
   color: var(--text-primary);
-  font-size: var(--text-sm);
+  font-size: var(--text-xs);
   font-weight: 500;
+  line-height: 1;
   cursor: pointer;
-  padding: var(--space-1) var(--space-2);
+  padding: 3px var(--space-2);
   transition: background-color 0.15s;
 }
 

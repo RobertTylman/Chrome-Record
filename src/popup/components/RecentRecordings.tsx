@@ -245,7 +245,7 @@ export const RecentRecordings: React.FC<RecentRecordingsProps> = ({ onSelectReco
         disabled={recordings.length === 0}
         title="Download all recordings"
       >
-        <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor">
+        <svg width="13" height="13" viewBox="0 0 20 20" fill="currentColor">
           <path d="M10 2a1 1 0 011 1v8.586l2.293-2.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 111.414-1.414L9 11.586V3a1 1 0 011-1z" />
           <path d="M3 15a1 1 0 011 1h12a1 1 0 110 2H4a1 1 0 01-1-1z" />
         </svg>
