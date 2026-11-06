@@ -41,6 +41,9 @@ export interface RecordingChunk {
 
 export const PEAKS_PER_SECOND = 20;
 
+// Live waveform levels while recording (display only, not stored)
+export const LIVE_LEVELS_PER_SECOND = 60;
+
 // Recordings stop and save automatically at this length (paused time doesn't count)
 export const MAX_RECORDING_SECONDS = 60 * 60;
 

@@ -1,4 +1,77 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { LiveWaveform } from '../hooks/useWaveform';
+import { LIVE_LEVELS_PER_SECOND } from '../utils/storageManager';
+
+const HALF_HEIGHT = 0.42; // tallest peak reaches 84% of the canvas height
+const MIN_HALF_HEIGHT = 1; // silence still shows as a thin line
+const POINT_SPACING = 2; // px between envelope points in the saved view
+const LIVE_WINDOW_SECONDS = 5; // recent audio shown while recording
+const LIVE_LEVEL_MS = 1000 / LIVE_LEVELS_PER_SECOND;
+
+function withAlpha(color: string, alpha: number): string {
+  const match = /^#([0-9a-f]{6})$/i.exec(color);
+  if (!match) return color;
+  const n = parseInt(match[1], 16);
+  return `rgba(${n >> 16}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
+}
+
+// Mirrored, smoothly curved outline through (x, value) points, filled with a soft vertical gradient
+function fillEnvelope(ctx: CanvasRenderingContext2D, xs: number[], values: number[], height: number, color: string) {
+  const count = xs.length;
+  if (count === 0) return;
+  const mid = height / 2;
+  const scale = (height * HALF_HEIGHT) / 255;
+  const h = values.map(v => Math.max(MIN_HALF_HEIGHT, v * scale));
+  const last = count - 1;
+
+  ctx.beginPath();
+  ctx.moveTo(xs[0], mid - h[0]);
+  for (let i = 1; i < count; i++) {
+    ctx.quadraticCurveTo(xs[i - 1], mid - h[i - 1], (xs[i - 1] + xs[i]) / 2, mid - (h[i - 1] + h[i]) / 2);
+  }
+  ctx.lineTo(xs[last], mid - h[last]);
+  ctx.lineTo(xs[last], mid + h[last]);
+  for (let i = last - 1; i >= 0; i--) {
+    ctx.quadraticCurveTo(xs[i + 1], mid + h[i + 1], (xs[i + 1] + xs[i]) / 2, mid + (h[i + 1] + h[i]) / 2);
+  }
+  ctx.lineTo(xs[0], mid + h[0]);
+  ctx.closePath();
+
+  const gradient = ctx.createLinearGradient(0, mid - height * HALF_HEIGHT, 0, mid + height * HALF_HEIGHT);
+  gradient.addColorStop(0, withAlpha(color, 0.5));
+  gradient.addColorStop(0.5, color);
+  gradient.addColorStop(1, withAlpha(color, 0.5));
+  ctx.fillStyle = gradient;
+  ctx.fill();
+}
+
+// Saved waveform for data[start, start + length). Zoomed out, each point is the loudest value in its
+// stretch of time; zoomed in past the data's resolution, points are interpolated so the outline
+// stays smooth instead of turning into blocks.
+function drawSavedWaveform(ctx: CanvasRenderingContext2D, data: Uint8Array, start: number, length: number, width: number, height: number, color: string) {
+  if (data.length === 0 || length <= 0) return;
+  const perPixel = length / width;
+  const at = (i: number) => data[Math.max(0, Math.min(data.length - 1, i))];
+  const xs: number[] = [];
+  const values: number[] = [];
+
+  for (let x = 0; x <= width + POINT_SPACING; x += POINT_SPACING) {
+    const t0 = start + (x - POINT_SPACING / 2) * perPixel;
+    const t1 = start + (x + POINT_SPACING / 2) * perPixel;
+    let value = 0;
+    if (t1 - t0 >= 1) {
+      for (let j = Math.max(0, Math.floor(t0)); j < Math.min(data.length, Math.ceil(t1)); j++) value = Math.max(value, data[j]);
+    } else {
+      // Each data point covers [i, i + 1); interpolate between point centers
+      const position = (t0 + t1) / 2 - 0.5;
+      const i = Math.floor(position);
+      value = at(i) + (at(i + 1) - at(i)) * (position - i);
+    }
+    xs.push(Math.min(x, width));
+    values.push(value);
+  }
+  fillEnvelope(ctx, xs, values, height, color);
+}
 
 interface WaveformProps {
   data: Uint8Array | null;
@@ -16,7 +89,7 @@ interface WaveformProps {
   trimStart?: number;
   trimEnd?: number;
   onTrimChange?: (start: number, end: number) => void;
-  liveDataRef?: React.MutableRefObject<Uint8Array | null>;
+  liveDataRef?: React.MutableRefObject<LiveWaveform | null>;
   onZoomChange?: (multiplier: number) => void;
 }
 
@@ -128,22 +201,7 @@ export const Waveform: React.FC<WaveformProps> = ({
 
     if (visibleDataLength <= 0) return;
 
-    // Draw waveform bars for visible portion
-    const barCount = Math.min(visibleDataLength, width);
-    const barWidth = width / barCount;
-    const maxBarHeight = height * 0.8;
-
-    ctx.fillStyle = barColor;
-
-    for (let i = 0; i < barCount; i++) {
-      const dataIndex = dataStartIndex + Math.floor((i / barCount) * visibleDataLength);
-      const value = data[dataIndex] || 0;
-      const barHeight = (value / 255) * maxBarHeight;
-      const x = i * barWidth;
-      const y = (height - barHeight) / 2;
-
-      ctx.fillRect(x, y, Math.max(1, barWidth - 1), barHeight);
-    }
+    drawSavedWaveform(ctx, data, dataStartIndex, visibleDataLength, width, height, barColor);
   }, [data, width, height, barColor, backgroundColor, zoom, scrollOffset, duration, getVisibleRange]);
 
   // Smooth playback position indicator with cached waveform for performance
@@ -173,31 +231,41 @@ export const Waveform: React.FC<WaveformProps> = ({
 
     let isActive = true;
 
+    if (canvas.width !== width) canvas.width = width;
+    if (canvas.height !== height) canvas.height = height;
+
+    // Scrolling loudness: newest audio enters on the right, older audio fades out on the left
+    const visibleLevels = LIVE_LEVELS_PER_SECOND * LIVE_WINDOW_SECONDS;
+    const levelWidth = width / visibleLevels;
+    const fade = ctx.createLinearGradient(0, 0, width * 0.2, 0);
+    fade.addColorStop(0, withAlpha(backgroundColor, 1));
+    fade.addColorStop(1, withAlpha(backgroundColor, 0));
+
     const drawFrame = () => {
       if (!isActive) return;
 
-      // Get live data from ref
-      const currentData = liveDataRef?.current;
-
-      // Clear canvas
       ctx.fillStyle = backgroundColor;
       ctx.fillRect(0, 0, width, height);
 
-      if (currentData && currentData.length > 0) {
-        const barCount = Math.min(currentData.length, width);
-        const barWidth = width / barCount;
-        const maxBarHeight = height * 0.8;
+      // Faint center line so the not-yet-filled part of the view doesn't look empty
+      ctx.fillStyle = withAlpha(barColor, 0.25);
+      ctx.fillRect(0, Math.floor(height / 2), width, 1);
 
-        ctx.fillStyle = barColor;
-        for (let i = 0; i < barCount; i++) {
-          const index = Math.floor((i / barCount) * currentData.length);
-          const value = currentData[index] || 0;
-          const barHeight = (value / 255) * maxBarHeight;
-          const x = i * barWidth;
-          // True vertical centering
-          const y = (height - barHeight) / 2;
-          ctx.fillRect(x, y, Math.max(1, barWidth - 1), barHeight);
+      const live = liveDataRef?.current;
+      if (live && live.levels.length > 0) {
+        // Glide toward the newest level between updates so the scroll is continuous
+        const progress = Math.min(1, (performance.now() - live.receivedAt) / LIVE_LEVEL_MS);
+        const newest = live.total - 1 + progress;
+        const first = live.total - live.levels.length;
+        const xs: number[] = [];
+        const values: number[] = [];
+        for (let k = Math.max(0, live.levels.length - visibleLevels - 2); k < live.levels.length; k++) {
+          xs.push(width - (newest - (first + k)) * levelWidth);
+          values.push(live.levels[k]);
         }
+        fillEnvelope(ctx, xs, values, height, barColor);
+        ctx.fillStyle = fade;
+        ctx.fillRect(0, 0, width * 0.2, height);
       }
 
       // Continue loop
@@ -265,20 +333,7 @@ export const Waveform: React.FC<WaveformProps> = ({
       ctx.fillStyle = backgroundColor;
       ctx.fillRect(0, 0, width, height);
 
-      const barCount = Math.min(visibleDataLength, width);
-      const barWidth = width / barCount;
-      const maxBarHeight = height * 0.8;
-
-      ctx.fillStyle = barColor;
-      for (let i = 0; i < barCount; i++) {
-        const dataIndex = dataStartIndex + Math.floor((i / barCount) * visibleDataLength);
-        const value = data[dataIndex] || 0;
-        const barHeight = (value / 255) * maxBarHeight;
-        const x = i * barWidth;
-        // True vertical centering
-        const y = (height - barHeight) / 2;
-        ctx.fillRect(x, y, Math.max(1, barWidth - 1), barHeight);
-      }
+      drawSavedWaveform(ctx, data, dataStartIndex, visibleDataLength, width, height, barColor);
 
       // Cache the result for playback performance
       cache.imageData = ctx.getImageData(0, 0, width, height);

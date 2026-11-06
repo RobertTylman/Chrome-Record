@@ -1,5 +1,5 @@
 import { logError } from '../popup/utils/diagnostics';
-import { appendRecordingChunk, finalizeRecordingSession, MAX_RECORDING_SECONDS, PEAKS_PER_SECOND, RecordingMetadata } from '../popup/utils/storageManager';
+import { appendRecordingChunk, finalizeRecordingSession, LIVE_LEVELS_PER_SECOND, MAX_RECORDING_SECONDS, PEAKS_PER_SECOND, RecordingMetadata } from '../popup/utils/storageManager';
 
 // Offscreen document: owns the MediaRecorder and persists audio to IndexedDB every second,
 // so a recording survives a service worker restart, popup crash or browser crash.
@@ -7,9 +7,10 @@ import { appendRecordingChunk, finalizeRecordingSession, MAX_RECORDING_SECONDS, 
 const CHUNK_INTERVAL_MS = 1000;
 const AUDIO_BITS_PER_SECOND = 128000;
 
-// Live waveform sent to the popup: the bars the popup draws (it samples 600 of the analyser's bins)
-const LIVE_WAVEFORM_BARS = 600;
-const LIVE_WAVEFORM_INTERVAL_MS = 33; // ~30 FPS
+// Live waveform: recent loudness levels (LIVE_LEVELS_PER_SECOND), streamed to the popup
+const LIVE_LEVELS_SENT = LIVE_LEVELS_PER_SECOND * 6; // enough history to fill the view when the popup opens
+const LIVE_LEVELS_KEPT = LIVE_LEVELS_SENT * 2;
+const LIVE_WAVEFORM_INTERVAL_MS = 16; // ~60 FPS
 
 type AutoStopReason = 'limit' | 'ended';
 
@@ -33,6 +34,9 @@ interface RecordingSession {
   analyser: AnalyserNode;
   details: RecordingDetails;
   peakCount: number;
+  // Recent levels (0-255) for the live waveform, and how many have been produced in total
+  levels: number[];
+  levelCount: number;
   stopping: Promise<RecordingMetadata | null> | null;
   // Fallback length limit when the peak meter is unavailable
   limitTimer: number | null;
@@ -88,18 +92,31 @@ async function autoStop(current: RecordingSession, reason: AutoStopReason) {
   }
 }
 
+function pushLevel(current: RecordingSession, level: number) {
+  current.levels.push(level);
+  current.levelCount++;
+  if (current.levels.length > LIVE_LEVELS_KEPT) current.levels.splice(0, current.levels.length - LIVE_LEVELS_SENT);
+}
+
 // The popup opens a port while it is showing a recording in progress
 chrome.runtime.onConnect.addListener((port) => {
   if (port.name !== 'waveform') return;
-  const bins = new Uint8Array(1024);
-  const bars = new Array<number>(LIVE_WAVEFORM_BARS);
+  const samples = new Float32Array(2048);
+  let lastSentCount = -1;
   const interval = window.setInterval(() => {
     if (!session || session.recorder.state !== 'recording') return;
-    const analyser = session.analyser;
-    if (bins.length !== analyser.frequencyBinCount) return;
-    analyser.getByteFrequencyData(bins);
-    for (let i = 0; i < LIVE_WAVEFORM_BARS; i++) bars[i] = bins[Math.floor((i / LIVE_WAVEFORM_BARS) * bins.length)];
-    port.postMessage({ data: bars });
+    // Without the peak meter, measure the level here from the analyser instead
+    if (!session.peakNode) {
+      session.analyser.getFloatTimeDomainData(samples);
+      let max = 0;
+      for (let i = 0; i < samples.length; i++) max = Math.max(max, Math.abs(samples[i]));
+      pushLevel(session, toByte(max));
+    }
+    if (session.levelCount === lastSentCount) return;
+    // History on the first send, then only the levels produced since
+    const fresh = lastSentCount < 0 ? LIVE_LEVELS_SENT : session.levelCount - lastSentCount;
+    lastSentCount = session.levelCount;
+    port.postMessage({ levels: session.levels.slice(-Math.min(fresh, LIVE_LEVELS_SENT)), total: session.levelCount });
   }, LIVE_WAVEFORM_INTERVAL_MS);
   port.onDisconnect.addListener(() => clearInterval(interval));
 });
@@ -154,7 +171,10 @@ async function startRecording(streamId: string, sessionId: string, details: Reco
     peakNode = new AudioWorkletNode(audioCtx, 'peak-meter', {
       numberOfInputs: 1,
       numberOfOutputs: 1,
-      processorOptions: { windowSize: Math.round(audioCtx.sampleRate / PEAKS_PER_SECOND) }
+      processorOptions: {
+        windowSize: Math.round(audioCtx.sampleRate / PEAKS_PER_SECOND),
+        liveWindowSize: Math.round(audioCtx.sampleRate / LIVE_LEVELS_PER_SECOND)
+      }
     });
     source.connect(peakNode);
     // Output is silent; connecting it keeps the node processing
@@ -183,6 +203,8 @@ async function startRecording(streamId: string, sessionId: string, details: Reco
     analyser,
     details,
     peakCount: 0,
+    levels: [],
+    levelCount: 0,
     stopping: null,
     limitTimer: null,
     activeMs: 0,
@@ -194,8 +216,15 @@ async function startRecording(streamId: string, sessionId: string, details: Reco
     // clock that excludes paused time
     const maxPeaks = MAX_RECORDING_SECONDS * PEAKS_PER_SECOND;
     peakNode.port.onmessage = (event) => {
-      pendingMax.push(toByte(event.data.max));
-      pendingAvg.push(toByte(event.data.avg));
+      const max = toByte(event.data.max);
+      const avg = toByte(event.data.avg);
+      if (event.data.live) {
+        // Same value as the saved waveform: (average + max) / 2
+        pushLevel(current, Math.round((max + avg) / 2));
+        return;
+      }
+      pendingMax.push(max);
+      pendingAvg.push(avg);
       if (++current.peakCount >= maxPeaks) autoStop(current, 'limit');
     };
   } else {

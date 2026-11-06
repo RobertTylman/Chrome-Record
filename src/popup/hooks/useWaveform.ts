@@ -8,35 +8,30 @@ interface WaveformData {
   duration: number;
 }
 
+// Recent loudness levels while recording (LIVE_LEVELS_PER_SECOND), newest last
+export interface LiveWaveform {
+  levels: number[];
+  total: number; // levels produced since the recording started
+  receivedAt: number; // performance.now() when `total` last increased, for smooth scrolling
+}
+
 interface UseWaveformReturn {
   waveformData: WaveformData | null;
-  liveWaveformDataRef: React.MutableRefObject<Uint8Array | null>;
+  liveWaveformDataRef: React.MutableRefObject<LiveWaveform | null>;
   analyzeAudio: (audioBlob: Blob, peaks?: WaveformPeaks) => Promise<WaveformPeaks | null>;
   clearWaveform: () => void;
   listenForRemoteUpdates: () => () => void;
 }
 
-const WAVEFORM_BARS = 1000;
-
-// Reduce stored peaks to a fixed number of bars: (average + max) / 2 per bar
-function peaksToBars(peaks: WaveformPeaks): Uint8Array {
-  const bars = new Uint8Array(WAVEFORM_BARS);
-  const count = peaks.max.length;
-  if (count === 0) return bars;
-
-  for (let i = 0; i < WAVEFORM_BARS; i++) {
-    const start = Math.floor(i * count / WAVEFORM_BARS);
-    const end = Math.max(start + 1, Math.floor((i + 1) * count / WAVEFORM_BARS));
-    let max = 0;
-    let sum = 0;
-    for (let j = start; j < end; j++) {
-      if (peaks.max[j] > max) max = peaks.max[j];
-      sum += peaks.avg[j];
-    }
-    bars[i] = Math.floor((sum / (end - start) + max) / 2);
-  }
-  return bars;
+// One value per stored peak window, (average + max) / 2, at full resolution so zooming shows detail
+function peaksToLevels(peaks: WaveformPeaks): Uint8Array {
+  const levels = new Uint8Array(peaks.max.length);
+  for (let i = 0; i < levels.length; i++) levels[i] = (peaks.max[i] + peaks.avg[i]) >> 1;
+  return levels;
 }
+
+// Live levels kept in the popup: a little more than the visible window
+const LIVE_LEVELS_KEPT = 600;
 
 export function useWaveform(): UseWaveformReturn {
   const [waveformData, setWaveformData] = useState<WaveformData | null>(null);
@@ -55,7 +50,7 @@ export function useWaveform(): UseWaveformReturn {
       if (analysisId !== analysisIdRef.current) return null;
 
       setWaveformData({
-        data: peaksToBars(resolvedPeaks),
+        data: peaksToLevels(resolvedPeaks),
         sampleRate: resolvedPeaks.rate,
         duration: resolvedPeaks.max.length / resolvedPeaks.rate
       });
@@ -72,26 +67,28 @@ export function useWaveform(): UseWaveformReturn {
     setWaveformData(null);
   }, []);
 
-  const liveWaveformDataRef = useRef<Uint8Array | null>(null);
+  const liveWaveformDataRef = useRef<LiveWaveform | null>(null);
 
   // Live waveform from the offscreen recorder, streamed over a port only while the popup shows it
   const listenForRemoteUpdates = useCallback(() => {
-    // Reusable buffer to prevent GC pressure
-    let updateBuffer: Uint8Array | null = null;
     let port: chrome.runtime.Port | null = null;
     let retryTimer: number | null = null;
     let active = true;
 
     const connect = () => {
       port = chrome.runtime.connect({ name: 'waveform' });
-      port.onMessage.addListener((message: { data: number[] }) => {
-        const data = message.data;
-        if (!updateBuffer || updateBuffer.length !== data.length) {
-          updateBuffer = new Uint8Array(data.length);
-        }
-        updateBuffer.set(data);
+      port.onMessage.addListener((message: { levels: number[]; total: number }) => {
         // Update the REF, not state - avoids React render cycle; Waveform polls it in its rAF loop
-        liveWaveformDataRef.current = updateBuffer;
+        const live = liveWaveformDataRef.current;
+        if (!live || message.levels.length !== message.total - live.total) {
+          // First message, or a fresh history after reconnecting
+          liveWaveformDataRef.current = { levels: message.levels.slice(-LIVE_LEVELS_KEPT), total: message.total, receivedAt: performance.now() };
+          return;
+        }
+        live.levels.push(...message.levels);
+        if (live.levels.length > LIVE_LEVELS_KEPT) live.levels.splice(0, live.levels.length - LIVE_LEVELS_KEPT);
+        live.total = message.total;
+        live.receivedAt = performance.now();
       });
       // The recorder may still be starting; reconnect while recording
       port.onDisconnect.addListener(() => {

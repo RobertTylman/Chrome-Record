@@ -1,5 +1,23 @@
 // AudioWorklet that measures waveform peaks while recording.
-// Posts one { max, avg } pair (absolute amplitude, 0-1) per window of `windowSize` frames.
+// Posts { max, avg } (absolute amplitude, 0-1) per window of `windowSize` frames for the saved
+// waveform, and { live: true, max, avg } per shorter `liveWindowSize` window for the live view.
+
+class Window {
+  count = 0;
+  max = 0;
+  sum = 0;
+
+  add(sample: number, size: number): { max: number; avg: number } | null {
+    if (sample > this.max) this.max = sample;
+    this.sum += sample;
+    if (++this.count < size) return null;
+    const result = { max: this.max, avg: this.sum / this.count };
+    this.count = 0;
+    this.max = 0;
+    this.sum = 0;
+    return result;
+  }
+}
 export { };
 
 declare class AudioWorkletProcessor {
@@ -10,14 +28,15 @@ declare function registerProcessor(name: string, processorCtor: any): void;
 
 class PeakMeterProcessor extends AudioWorkletProcessor {
   private windowSize: number;
-  private count = 0;
-  private max = 0;
-  private sum = 0;
+  private liveWindowSize: number;
+  private stored = new Window();
+  private live = new Window();
   private paused = false;
 
   constructor(options: any) {
     super(options);
     this.windowSize = options.processorOptions.windowSize;
+    this.liveWindowSize = options.processorOptions.liveWindowSize || 0;
     this.port.onmessage = (event: MessageEvent) => {
       if (event.data === 'pause') this.paused = true;
       if (event.data === 'resume') this.paused = false;
@@ -39,15 +58,11 @@ class PeakMeterProcessor extends AudioWorkletProcessor {
           if (abs > sample) sample = abs;
         }
       }
-      if (sample > this.max) this.max = sample;
-      this.sum += sample;
-      this.count++;
-
-      if (this.count === this.windowSize) {
-        this.port.postMessage({ max: this.max, avg: this.sum / this.count });
-        this.count = 0;
-        this.max = 0;
-        this.sum = 0;
+      const stored = this.stored.add(sample, this.windowSize);
+      if (stored) this.port.postMessage(stored);
+      if (this.liveWindowSize) {
+        const live = this.live.add(sample, this.liveWindowSize);
+        if (live) this.port.postMessage({ live: true, ...live });
       }
     }
     return true;
