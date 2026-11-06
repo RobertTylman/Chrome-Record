@@ -847,9 +847,12 @@ body:not(.light-mode):not(.midnight-mode):not(.forest-mode):not(.rainbow-mode) .
   justify-content: space-between;
 }
 
-/* Loop next to play, marker button at the far right (mirrors zoom on the left) */
+/* Loop next to play; the marker button mirrors the zoom level label on the left, so both sit the
+   same distance from play: label center = -4px offset + 30px button + 34px/2 label = 43px from the
+   left edge, so the 30px marker button needs 43 - 15 = 28px on its right */
 .transport-right {
   justify-content: space-between;
+  padding-right: 28px;
 }
 
 .marker-button {
