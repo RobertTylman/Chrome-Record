@@ -29,11 +29,36 @@ interface Message {
   tabId?: number;
   details?: { name?: string; channelMode?: string };
   recording?: { id: string; duration?: number; size?: number };
+  seconds?: number;
+  paused?: boolean;
   context?: string;
   message?: string;
   level?: string;
   reason?: string;
 }
+
+// Toolbar badge: recorded minutes while recording (red), grey while paused
+const BADGE_RECORDING_COLOR = '#ef4444';
+const BADGE_PAUSED_COLOR = '#6b7280';
+const DEFAULT_TITLE = 'Chrome Recorder';
+
+async function updateBadge(seconds: number, paused: boolean) {
+  const minutes = Math.floor(Math.max(0, seconds) / 60);
+  await chrome.action.setBadgeText({ text: `${minutes}m` });
+  await chrome.action.setBadgeBackgroundColor({ color: paused ? BADGE_PAUSED_COLOR : BADGE_RECORDING_COLOR });
+  await chrome.action.setBadgeTextColor?.({ color: '#ffffff' });
+  await chrome.action.setTitle({ title: `${DEFAULT_TITLE} · ${paused ? 'Paused' : 'Recording'} · ${minutes} min` });
+}
+
+async function clearBadge() {
+  await chrome.action.setBadgeText({ text: '' });
+  await chrome.action.setTitle({ title: DEFAULT_TITLE });
+}
+
+// A badge left over from a crash or restart
+chrome.runtime.onStartup.addListener(async () => {
+  if (!(await hasOffscreenDocument())) clearBadge();
+});
 
 // Persist defaults so the Settings screen and the download logic always agree
 chrome.runtime.onInstalled.addListener(async () => {
@@ -88,6 +113,12 @@ chrome.runtime.onMessage.addListener((message: Message, sender: chrome.runtime.M
     return true;
   }
 
+  // Recorded time from the offscreen document, for the toolbar badge
+  if (message.action === 'recordingProgress') {
+    updateBadge(message.seconds || 0, !!message.paused).catch(() => { });
+    return;
+  }
+
   // Diagnostics from the offscreen document, which has no chrome.storage
   if (message.action === 'logDiagnostic') {
     appendDiagnostic(message.context || 'Recorder', message.message || '', message.level === 'info' ? 'info' : 'error').catch(() => { });
@@ -104,6 +135,7 @@ chrome.runtime.onMessage.addListener((message: Message, sender: chrome.runtime.M
       }
       await chrome.offscreen.closeDocument().catch(() => { });
       await chrome.storage.local.remove(RECORDING_STATE_KEYS);
+      await clearBadge();
     })();
     return;
   }
@@ -216,6 +248,7 @@ async function startRecordingFromStreamId(streamId: string, details: { name?: st
     recordingPausedTotal: 0
   });
   logEvent('Recording', 'Started');
+  updateBadge(0, false).catch(() => { });
 }
 
 function describeRecording(recording: { duration?: number; size?: number } | null | undefined): string {
@@ -226,6 +259,7 @@ function describeRecording(recording: { duration?: number; size?: number } | nul
 async function stopAndSave(details: { name?: string; channelMode?: string }) {
   if (!(await hasOffscreenDocument())) {
     await chrome.storage.local.remove(RECORDING_STATE_KEYS);
+    await clearBadge();
     return null;
   }
 
@@ -240,6 +274,7 @@ async function stopAndSave(details: { name?: string; channelMode?: string }) {
   } finally {
     await chrome.offscreen.closeDocument().catch(() => { });
     await chrome.storage.local.remove(RECORDING_STATE_KEYS);
+    await clearBadge();
   }
 }
 

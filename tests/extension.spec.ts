@@ -110,3 +110,23 @@ test('bug report copies diagnostics without recording content', async ({ context
   expect(report).toContain('MediaRecorder Opus/WebM: yes');
   expect(report).not.toMatch(/unavailable:/);
 });
+
+test('toolbar badge shows recorded minutes, grey when paused, and clears on stop', async ({ context, extensionId }) => {
+  const page = await context.newPage();
+  await page.goto(`chrome-extension://${extensionId}/popup.html`);
+  const badge = () => page.evaluate(async () => ({
+    text: await chrome.action.getBadgeText({}),
+    color: await chrome.action.getBadgeBackgroundColor({}),
+    title: await chrome.action.getTitle({})
+  }));
+
+  await page.evaluate(() => chrome.runtime.sendMessage({ action: 'recordingProgress', seconds: 125, paused: false }));
+  await expect.poll(badge).toMatchObject({ text: '2m', color: [239, 68, 68, 255], title: 'Chrome Recorder · Recording · 2 min' });
+
+  await page.evaluate(() => chrome.runtime.sendMessage({ action: 'recordingProgress', seconds: 130, paused: true }));
+  await expect.poll(badge).toMatchObject({ text: '2m', color: [107, 114, 128, 255], title: 'Chrome Recorder · Paused · 2 min' });
+
+  // Stopping (here with nothing actually recording) clears it
+  await page.evaluate(() => chrome.runtime.sendMessage({ action: 'stopCapture' }));
+  await expect.poll(badge).toMatchObject({ text: '', title: 'Chrome Recorder' });
+});
