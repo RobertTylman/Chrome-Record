@@ -51,6 +51,7 @@ interface RecordingSession {
   // Markers in recorded seconds: all of them (for the live view) and those not yet saved with a chunk
   markers: number[];
   pendingMarkers: number[];
+  pendingRemovals: number[]; // undone markers that an earlier chunk already saved
 }
 
 let session: RecordingSession | null = null;
@@ -81,6 +82,30 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     session.markers.push(time);
     session.pendingMarkers.push(time);
     sendResponse({ success: true, time });
+    return;
+  }
+
+  if (message.type === 'GET_MARKERS') {
+    sendResponse({ success: !!session, markers: session ? [...session.markers] : [] });
+    return;
+  }
+
+  if (message.type === 'REMOVE_MARKER') {
+    if (!session || session.stopping) {
+      sendResponse({ success: false, error: 'Not recording' });
+      return;
+    }
+    const matches = (m: number) => Math.abs(m - message.time) < 0.001;
+    const index = session.markers.findIndex(matches);
+    if (index < 0) {
+      sendResponse({ success: false, error: 'Marker not found' });
+      return;
+    }
+    session.markers.splice(index, 1);
+    const pendingIndex = session.pendingMarkers.findIndex(matches);
+    if (pendingIndex >= 0) session.pendingMarkers.splice(pendingIndex, 1);
+    else session.pendingRemovals.push(message.time);
+    sendResponse({ success: true });
     return;
   }
 
@@ -273,7 +298,8 @@ async function startRecording(streamId: string, sessionId: string, details: Reco
     resumedAt: null,
     progressInterval: 0,
     markers: [],
-    pendingMarkers: []
+    pendingMarkers: [],
+    pendingRemovals: []
   };
 
   if (peakNode) {
@@ -309,7 +335,8 @@ async function startRecording(streamId: string, sessionId: string, details: Reco
       peakMax: Uint8Array.from(current.pendingMax.splice(0)),
       peakAvg: Uint8Array.from(current.pendingAvg.splice(0)),
       peakRate: PEAKS_PER_SECOND,
-      markers: current.pendingMarkers.splice(0)
+      markers: current.pendingMarkers.splice(0),
+      removedMarkers: current.pendingRemovals.splice(0)
     };
     current.writeChain = current.writeChain
       .then(() => appendRecordingChunk(chunk))
@@ -344,7 +371,7 @@ async function finishRecording(current: RecordingSession, details: RecordingDeta
     });
   }
   await current.writeChain;
-  if (current.pendingMarkers.length > 0) {
+  if (current.pendingMarkers.length > 0 || current.pendingRemovals.length > 0) {
     // Markers added after the last chunk: save them in an empty chunk so they aren't lost
     await appendRecordingChunk({
       sessionId: current.id,
@@ -353,7 +380,8 @@ async function finishRecording(current: RecordingSession, details: RecordingDeta
       peakMax: new Uint8Array(0),
       peakAvg: new Uint8Array(0),
       peakRate: PEAKS_PER_SECOND,
-      markers: current.pendingMarkers.splice(0)
+      markers: current.pendingMarkers.splice(0),
+      removedMarkers: current.pendingRemovals.splice(0)
     }).catch((error) => logError('Recorder: save final markers', error));
   }
 

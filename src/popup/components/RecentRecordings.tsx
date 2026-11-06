@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { exportAudio } from '../utils/audioConverter';
+import { DownloadIcon, PlayIcon, TrashIcon } from './icons';
 import { downloadAudio } from '../utils/audioUtils';
 import { exportFilename, getExportOptions, openExportTab, shouldExportInTab } from '../utils/exportUtils';
 import { formatBytes, formatSeconds, logError, logEvent } from '../utils/diagnostics';
@@ -170,22 +171,12 @@ export const RecentRecordings: React.FC<RecentRecordingsProps> = ({ onSelectReco
               </div>
               <div className="recording-date-row">
                 <span className="recording-date-secondary">{formatDate(recording.timestamp)}</span>
-                <span className="recording-channel-icon">
-                  {(recording.channelMode || 'stereo') === 'mono' ? (
-                    <svg width="20" height="20" viewBox="0 0 256 256" fill="currentColor">
-                      <path d="M127 210c-44.735 0-81-36.265-81-81s36.265-81 81-81 81 36.265 81 81-36.265 81-81 81zm1-21c34.794 0 63-27.087 63-60.5S162.794 68 128 68s-63 27.087-63 60.5S93.206 189 128 189z" fillRule="evenodd" />
-                    </svg>
-                  ) : (
-                    <svg width="20" height="20" viewBox="0 0 256 256" fill="currentColor">
-                      <path d="M128.802 95.03c-9.229-9.369-22.39-15.228-37-15.228-27.92 0-50.555 21.402-50.555 47.803 0 26.4 22.634 47.802 50.555 47.802 14.711 0 27.954-5.94 37.193-15.423-12.232-16.88-14.177-19.888-14.177-32.38 0-12.016 5.924-18.458 14.19-31.142 6.753 13.293 13.629 19.445 13.629 31.538 0 12.802-6.03 20.525-13.402 32.614 9.206 9.115 22.185 14.793 36.567 14.793 27.922 0 50.556-21.401 50.556-47.802 0-26.4-22.634-47.803-50.556-47.803-14.608 0-27.77 5.86-37 15.228zM128 75.374C138.501 68.202 151.252 64 165 64c35.899 0 65 28.654 65 64 0 35.346-29.101 64-65 64-13.748 0-26.499-4.202-37-11.374C117.499 187.798 104.748 192 91 192c-35.899 0-65-28.654-65-64 0-35.346 29.101-64 65-64 13.748 0 26.499 4.202 37 11.374z" fillRule="evenodd" />
-                    </svg>
-                  )}
-                </span>
+                <span className="recording-channel">{(recording.channelMode || 'stereo') === 'mono' ? 'Mono' : 'Stereo'}</span>
               </div>
             </div>
             <div className="recording-actions">
               <button
-                className="action-button"
+                className="action-button has-tooltip tooltip-below"
                 onClick={async (e) => {
                   e.stopPropagation();
                   // Load full recording from IndexedDB when selected
@@ -198,36 +189,32 @@ export const RecentRecordings: React.FC<RecentRecordingsProps> = ({ onSelectReco
                     logError('My Recordings: open recording', error);
                   }
                 }}
-                title="Play"
+                aria-label="Play"
+                data-tooltip="Play"
               >
-                <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor">
-                  <path d="M6.3 2.841A1.5 1.5 0 004 4.11V15.89a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z" />
-                </svg>
+                <PlayIcon size={16} />
               </button>
               <button
-                className="action-button"
+                className="action-button has-tooltip tooltip-below"
                 onClick={(e) => {
                   e.stopPropagation();
                   handleDownload(recording);
                 }}
-                title="Download"
+                aria-label="Download"
+                data-tooltip="Download"
               >
-                <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor">
-                  <path d="M10 2a1 1 0 011 1v8.586l2.293-2.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 111.414-1.414L9 11.586V3a1 1 0 011-1z" />
-                  <path d="M3 15a1 1 0 011 1h12a1 1 0 110 2H4a1 1 0 01-1-1z" />
-                </svg>
+                <DownloadIcon size={17} />
               </button>
               <button
-                className="action-button delete-button"
+                className="action-button delete-button has-tooltip tooltip-below"
                 onClick={(e) => {
                   e.stopPropagation();
                   handleDelete(recording.id);
                 }}
-                title="Delete"
+                aria-label="Delete"
+                data-tooltip="Delete"
               >
-                <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
-                </svg>
+                <TrashIcon size={17} />
               </button>
             </div>
             <div className="recording-meta-right">
@@ -245,10 +232,7 @@ export const RecentRecordings: React.FC<RecentRecordingsProps> = ({ onSelectReco
         disabled={recordings.length === 0}
         title="Download all recordings"
       >
-        <svg width="13" height="13" viewBox="0 0 20 20" fill="currentColor">
-          <path d="M10 2a1 1 0 011 1v8.586l2.293-2.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 111.414-1.414L9 11.586V3a1 1 0 011-1z" />
-          <path d="M3 15a1 1 0 011 1h12a1 1 0 110 2H4a1 1 0 01-1-1z" />
-        </svg>
+        <DownloadIcon size={14} />
         Download all ({recordings.length})
       </button>
     </div>

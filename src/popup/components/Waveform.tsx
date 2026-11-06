@@ -633,7 +633,7 @@ export const Waveform: React.FC<WaveformProps> = ({
 
       {channelMode && (
         <div className="waveform-channel-indicator">
-          {channelMode.toUpperCase()}
+          {channelMode === 'mono' ? 'Mono' : 'Stereo'}
         </div>
       )}
       <canvas
@@ -655,15 +655,26 @@ export const Waveform: React.FC<WaveformProps> = ({
         const seconds = (time % 60).toFixed(2).padStart(5, '0');
         return (
           <div key={`${index}-${time}`} className={`waveform-marker${theme === 'light' ? ' light' : ''}`} style={{ left: `${percent}%` }}>
-            <button
-              className="waveform-marker-label"
-              title={`Marker ${index + 1} · ${minutes}:${seconds}\nClick to jump · double-click to remove`}
-              onMouseDown={(e) => e.stopPropagation()}
-              onClick={(e) => { e.stopPropagation(); onMarkerClick?.(time); }}
-              onDoubleClick={(e) => { e.stopPropagation(); onMarkerRemove?.(index); }}
-            >
-              {index + 1}
-            </button>
+            <div className="waveform-marker-tab" onMouseDown={(e) => e.stopPropagation()}>
+              <button
+                className="waveform-marker-label"
+                title={`Marker ${index + 1} · ${minutes}:${seconds}\nClick to jump · double-click to remove`}
+                onClick={(e) => { e.stopPropagation(); onMarkerClick?.(time); }}
+                onDoubleClick={(e) => { e.stopPropagation(); onMarkerRemove?.(index); }}
+              >
+                {index + 1}
+              </button>
+              {onMarkerRemove && (
+                <button
+                  className="waveform-marker-remove"
+                  title={`Remove marker ${index + 1}`}
+                  aria-label={`Remove marker ${index + 1}`}
+                  onClick={(e) => { e.stopPropagation(); onMarkerRemove(index); }}
+                >
+                  ×
+                </button>
+              )}
+            </div>
           </div>
         );
       })}

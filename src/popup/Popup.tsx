@@ -83,9 +83,19 @@ const Popup: React.FC = () => {
   const [markers, setMarkers] = useState<number[]>([]);
   const [noticeAction, setNoticeAction] = useState<{ label: string; onClick: () => void } | null>(null);
 
-  const showNotice = useCallback((text: string | null, action: { label: string; onClick: () => void } | null = null) => {
+  const noticeTimerRef = useRef<number | null>(null);
+  // autoHideMs: dismiss automatically (for short confirmations like "Marker added · Undo")
+  const showNotice = useCallback((text: string | null, action: { label: string; onClick: () => void } | null = null, autoHideMs?: number) => {
+    if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current);
+    noticeTimerRef.current = null;
     setNotice(text);
     setNoticeAction(action);
+    if (text && autoHideMs) {
+      noticeTimerRef.current = window.setTimeout(() => {
+        setNotice(null);
+        setNoticeAction(null);
+      }, autoHideMs);
+    }
   }, []);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -632,13 +642,44 @@ const Popup: React.FC = () => {
     }
   };
 
+  // While recording, the recorder is the source of truth for markers (0 for a fresh recording);
+  // this also replaces markers restored from a previous recording when the popup reopens mid-recording
+  useEffect(() => {
+    if (!isRecording) return;
+    setMarkers([]);
+    chrome.runtime.sendMessage({ type: 'GET_MARKERS', target: 'offscreen' })
+      .then((response) => {
+        if (response?.success) setMarkers(response.markers || []);
+      })
+      .catch(() => { /* recorder not ready yet; markers start empty */ });
+  }, [isRecording]);
+
+  // Undo a marker added during the current recording
+  const undoLiveMarker = useCallback(async (time: number) => {
+    showNotice(null);
+    try {
+      const response = await chrome.runtime.sendMessage({ type: 'REMOVE_MARKER', target: 'offscreen', time });
+      if (!response?.success) throw new Error(response?.error || 'the recorder did not respond');
+      setMarkers(current => current.filter(m => Math.abs(m - time) >= 0.001));
+    } catch (error) {
+      reportError('undo marker', error);
+      showNotice(`Could not remove marker: ${errorText(error)}`);
+    }
+  }, [showNotice]);
+
   // While recording the recorder stamps the exact recorded time; afterwards the marker goes at the playhead
   const handleAddMarker = useCallback(async () => {
     try {
       if (isRecording) {
-        const response = await chrome.runtime.sendMessage({ action: 'addMarker' });
-        if (!response?.success) throw new Error(response?.error || 'Could not add marker');
-        setMarkers(current => [...current, response.time]);
+        // Straight to the recorder, which knows the exact recorded time
+        const response = await chrome.runtime.sendMessage({ type: 'ADD_MARKER', target: 'offscreen' });
+        if (!response) {
+          throw new Error('the recorder did not respond. If the extension was just updated, reload it at chrome://extensions');
+        }
+        if (!response.success) throw new Error(response.error || 'the recorder refused it');
+        const time: number = response.time;
+        setMarkers(current => [...current, time]);
+        showNotice(`Marker added at ${formatTime(time)}`, { label: 'Undo', onClick: () => undoLiveMarker(time) }, 4000);
         return;
       }
       if (!audioBlob || !currentRecordingId) return;
@@ -651,7 +692,7 @@ const Popup: React.FC = () => {
       reportError('add marker', error);
       showNotice(`Could not add marker: ${errorText(error)}`);
     }
-  }, [isRecording, audioBlob, currentRecordingId, currentPlayTime, markers, showNotice]);
+  }, [isRecording, audioBlob, currentRecordingId, currentPlayTime, markers, showNotice, undoLiveMarker]);
 
   const handleRemoveMarker = useCallback((index: number) => {
     const next = markers.filter((_, i) => i !== index);

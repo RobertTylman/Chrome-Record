@@ -40,6 +40,7 @@ export interface RecordingChunk {
   peakAvg: Uint8Array;
   peakRate?: number; // peaks per second; absent on chunks written before rates were recorded (20)
   markers?: number[]; // markers added since the previous chunk, in recorded seconds
+  removedMarkers?: number[]; // markers undone after an earlier chunk already saved them
 }
 
 // Stored waveform resolution. Higher values give more detail when zoomed in (100/s is about
@@ -330,7 +331,8 @@ export async function finalizeRecordingSession(
       channelMode: details.channelMode || 'stereo',
       mimeType: 'audio/webm'
     }, audio, peakCount > 0 ? { rate: peakRate, max, avg } : undefined,
-      chunks.flatMap(c => c.markers || []).filter(t => t <= duration).sort((a, b) => a - b));
+      withoutRemoved(chunks.flatMap(c => c.markers || []), chunks.flatMap(c => c.removedMarkers || []))
+        .filter(t => t <= duration).sort((a, b) => a - b));
   }
 
   const deleteTransaction = db.transaction([CHUNK_STORE_NAME], 'readwrite');
@@ -338,6 +340,16 @@ export async function finalizeRecordingSession(
   await transactionDone(deleteTransaction);
 
   return metadata;
+}
+
+// Markers minus any that were undone (matched by time)
+function withoutRemoved(markers: number[], removed: number[]): number[] {
+  const remaining = [...markers];
+  for (const time of removed) {
+    const index = remaining.findIndex(m => Math.abs(m - time) < 0.001);
+    if (index >= 0) remaining.splice(index, 1);
+  }
+  return remaining;
 }
 
 // List session ids that still have chunks in storage

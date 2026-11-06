@@ -522,6 +522,11 @@ body:not(.light-mode):not(.midnight-mode):not(.forest-mode):not(.rainbow-mode) .
   background-color: var(--bg-hover);
 }
 
+.icon-button.delete-button:hover {
+  background-color: rgba(239, 68, 68, 0.15);
+  color: var(--danger);
+}
+
 /* ---------- Tabs ---------- */
 .tabs {
   display: flex;
@@ -597,20 +602,20 @@ body:not(.light-mode):not(.midnight-mode):not(.forest-mode):not(.rainbow-mode) .
   position: absolute;
   left: var(--space-2);
   right: var(--space-2);
-  bottom: var(--space-1);
-  min-height: calc(var(--footer-height) - var(--space-2));
+  bottom: 2px;
+  min-height: calc(var(--footer-height) - 4px);
   align-items: center;
   z-index: 40;
   display: flex;
   align-items: flex-start;
   gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
+  padding: 3px var(--space-3);
   border-radius: var(--radius-sm);
   background-color: var(--bg-secondary);
   border: 1px solid var(--border-color);
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
-  font-size: var(--text-sm);
-  line-height: 1.4;
+  font-size: var(--text-xs);
+  line-height: 1.35;
   color: var(--text-primary);
   animation: notice-in 0.18s ease-out;
 }
@@ -682,7 +687,8 @@ body:not(.light-mode):not(.midnight-mode):not(.forest-mode):not(.rainbow-mode) .
   justify-content: space-between;
   align-items: center;
   gap: var(--space-2);
-  min-height: 28px;
+  /* Fixed height whether or not the download/delete buttons are shown */
+  height: 32px;
   font-size: var(--text-md);
   color: var(--text-primary);
   flex-shrink: 0;
@@ -739,21 +745,22 @@ body:not(.light-mode):not(.midnight-mode):not(.forest-mode):not(.rainbow-mode) .
 
 .waveform-channel-indicator {
   position: absolute;
-  top: var(--space-2);
-  right: var(--space-2);
-  background-color: rgba(0, 0, 0, 0.5);
+  top: 6px;
+  right: 6px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background-color: rgba(0, 0, 0, 0.45);
   color: rgba(255, 255, 255, 0.75);
   font-size: 9px;
   font-weight: 600;
-  padding: 2px 6px;
-  border-radius: 4px;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
   z-index: 10;
-  letter-spacing: 0.6px;
   pointer-events: none;
 }
 
 .light-mode .waveform-channel-indicator {
-  background-color: rgba(255, 255, 255, 0.85);
+  background-color: rgba(255, 255, 255, 0.8);
   color: rgba(0, 0, 0, 0.6);
 }
 
@@ -880,10 +887,36 @@ body:not(.light-mode):not(.midnight-mode):not(.forest-mode):not(.rainbow-mode) .
   background-color: rgba(0, 0, 0, 0.5);
 }
 
-.waveform-marker-label {
+.waveform-marker-tab {
   position: absolute;
   top: 0;
   left: 0;
+  display: flex;
+  pointer-events: auto;
+}
+
+/* The remove button appears when hovering the marker's tab */
+.waveform-marker-remove {
+  display: none;
+  width: 14px;
+  height: 14px;
+  margin-left: 1px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background-color: rgba(239, 68, 68, 0.95);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 13px;
+  cursor: pointer;
+}
+
+.waveform-marker-tab:hover .waveform-marker-remove {
+  display: block;
+}
+
+.waveform-marker-label {
   min-width: 14px;
   height: 14px;
   padding: 0 3px;
@@ -937,6 +970,18 @@ body:not(.light-mode):not(.midnight-mode):not(.forest-mode):not(.rainbow-mode) .
   transition-delay: 0.3s;
 }
 
+/* Below the button, for rows at the top of a clipped area (list rows, the recording header) */
+.has-tooltip.tooltip-below::after {
+  bottom: auto;
+  top: calc(100% + 6px);
+  transform: translate(-50%, -3px);
+}
+
+.has-tooltip.tooltip-below:hover::after,
+.has-tooltip.tooltip-below:focus-visible::after {
+  transform: translate(-50%, 0);
+}
+
 /* Edge buttons: align the tooltip to the button so it stays inside the popup */
 .has-tooltip.tooltip-start::after {
   left: 0;
@@ -957,6 +1002,10 @@ body:not(.light-mode):not(.midnight-mode):not(.forest-mode):not(.rainbow-mode) .
 .has-tooltip.tooltip-end:hover::after,
 .has-tooltip.tooltip-end:focus-visible::after {
   transform: translate(0, 0);
+}
+
+.has-tooltip.tooltip-below.tooltip-end::after {
+  transform: translate(0, -3px);
 }
 
 .zoom-level {
@@ -998,8 +1047,8 @@ body:not(.light-mode):not(.midnight-mode):not(.forest-mode):not(.rainbow-mode) .
 }
 
 .control-button.small {
-  width: 26px;
-  height: 26px;
+  width: 30px;
+  height: 30px;
   border-radius: var(--radius-sm);
 }
 
@@ -1234,16 +1283,16 @@ body:not(.light-mode):not(.midnight-mode):not(.forest-mode):not(.rainbow-mode) .
   font-variant-numeric: tabular-nums;
 }
 
-.recording-channel-icon {
-  display: inline-flex;
-  align-items: center;
+.recording-channel {
+  padding: 1px 5px;
+  border-radius: 4px;
+  /* Visible on the hovered row too, whose background matches --border-color */
+  border: 1px solid color-mix(in srgb, var(--text-secondary) 45%, transparent);
   color: var(--text-secondary);
-  opacity: 0.8;
-}
-
-.recording-channel-icon svg {
-  width: 16px;
-  height: 16px;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
 }
 
 .recording-meta-right {

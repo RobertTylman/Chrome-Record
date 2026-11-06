@@ -1,5 +1,6 @@
 import React from 'react';
 import { formatZoom } from '../utils/zoom';
+import { LoopIcon, MarkerIcon, PauseIcon, PlayIcon, SkipBackIcon, ZoomInIcon, ZoomOutIcon } from './icons';
 
 interface TransportControlsProps {
   onPlay: () => void;
@@ -41,10 +42,7 @@ export const TransportControls: React.FC<TransportControlsProps> = React.memo(({
           data-tooltip="Back to start"
           disabled={isRecording}
         >
-          <svg width="21" height="21" viewBox="0 0 20 20" fill="currentColor">
-            <rect x="3.5" y="4" width="2" height="12" rx="1" />
-            <path d="M16 4.9v10.2a.9.9 0 01-1.4.75L7.4 10.75a.9.9 0 010-1.5l7.2-5.1a.9.9 0 011.4.75z" />
-          </svg>
+          <SkipBackIcon size={22} />
         </button>
       </div>
 
@@ -55,14 +53,9 @@ export const TransportControls: React.FC<TransportControlsProps> = React.memo(({
         data-tooltip={playLabel}
       >
         {isPlaying ? (
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
-            <rect x="6" y="4.5" width="4" height="15" rx="1.2" />
-            <rect x="14" y="4.5" width="4" height="15" rx="1.2" />
-          </svg>
+          <PauseIcon />
         ) : (
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M8 5.6v12.8a1 1 0 001.5.86l10.2-6.4a1 1 0 000-1.72L9.5 4.74A1 1 0 008 5.6z" />
-          </svg>
+          <PlayIcon />
         )}
       </button>
 
@@ -75,10 +68,7 @@ export const TransportControls: React.FC<TransportControlsProps> = React.memo(({
           data-tooltip={isLooping ? 'Loop: on' : 'Loop: off'}
           disabled={isRecording}
         >
-          <svg width="21" height="21" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M4 9V8a3 3 0 013-3h9M13.5 2.5L16 5l-2.5 2.5" />
-            <path d="M16 11v1a3 3 0 01-3 3H4M6.5 17.5L4 15l2.5-2.5" />
-          </svg>
+          <LoopIcon size={22} />
         </button>
         {trailing}
       </div>
@@ -104,10 +94,7 @@ export const ZoomControls: React.FC<ZoomControlsProps> = React.memo(({ onZoomIn,
       data-tooltip="Zoom out"
       disabled={disabled || zoom <= 1}
     >
-      <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
-        <circle cx="10" cy="10" r="7.5" />
-        <line x1="6.5" y1="10" x2="13.5" y2="10" />
-      </svg>
+      <ZoomOutIcon />
     </button>
 
     <span className="zoom-level" aria-label="Zoom level">{formatZoom(zoom)}</span>
@@ -119,11 +106,7 @@ export const ZoomControls: React.FC<ZoomControlsProps> = React.memo(({ onZoomIn,
       data-tooltip="Zoom in"
       disabled={disabled || !canZoomIn}
     >
-      <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
-        <circle cx="10" cy="10" r="7.5" />
-        <line x1="6.5" y1="10" x2="13.5" y2="10" />
-        <line x1="10" y1="6.5" x2="10" y2="13.5" />
-      </svg>
+      <ZoomInIcon />
     </button>
   </div>
 ));
@@ -143,10 +126,7 @@ export const MarkerButton: React.FC<MarkerButtonProps> = React.memo(({ onAddMark
     data-tooltip={count > 0 ? `Add marker (M) · ${count} so far` : 'Add marker (M)'}
     disabled={disabled}
   >
-    <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M5 17.5V3" />
-      <path d="M5 3.5h9.5l-2.2 3.5 2.2 3.5H5" />
-    </svg>
+    <MarkerIcon />
     {count > 0 && <span className="marker-count">{count}</span>}
   </button>
 ));

@@ -106,14 +106,6 @@ chrome.runtime.onMessage.addListener((message: Message, sender: chrome.runtime.M
     return true;
   }
 
-  if (message.action === 'addMarker') {
-    hasOffscreenDocument()
-      .then((recording) => recording ? sendToOffscreen('ADD_MARKER') : { success: false, error: 'Not recording' })
-      .then(sendResponse)
-      .catch((error) => sendResponse({ success: false, error: error.message }));
-    return true;
-  }
-
   if (message.action === 'pauseRecording' || message.action === 'resumeRecording') {
     setPaused(message.action === 'pauseRecording')
       .then((state) => sendResponse({ success: true, ...state }))
