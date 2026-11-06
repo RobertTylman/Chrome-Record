@@ -114,47 +114,47 @@ export const Preferences: React.FC<PreferencesProps> = ({ onClose }) => {
   return (
     <div className="preferences">
       <div className="preference-item" title="Choose between mono (1 channel) or stereo (2 channels) audio">
-        <label className="preference-label">mono/stereo</label>
+        <label className="preference-label">Channels</label>
         <select
           className="preference-select"
           value={channelMode}
           onChange={handleChannelModeChange}
         >
-          <option value="mono">mono</option>
-          <option value="stereo">stereo</option>
+          <option value="mono">Mono</option>
+          <option value="stereo">Stereo</option>
         </select>
       </div>
 
       <div className="preference-item" title="Audio file format for downloads (WAV: lossless, WebM/MP3/OGG: compressed)">
-        <label className="preference-label">download file type</label>
+        <label className="preference-label">Download format</label>
         <select
           className="preference-select"
           value={format}
           onChange={handleFormatChange}
         >
-          <option value="wav">wav</option>
-          <option value="webm">webm</option>
-          <option value="mp3">mp3</option>
-          <option value="ogg">ogg</option>
+          <option value="wav">WAV</option>
+          <option value="webm">WebM</option>
+          <option value="mp3">MP3</option>
+          <option value="ogg">OGG</option>
         </select>
       </div>
 
       <div className="preference-item" title="Number of audio samples per second (higher = better quality, larger file)">
-        <label className="preference-label">sample rate</label>
+        <label className="preference-label">Sample rate</label>
         <select
           className="preference-select"
           value={sampleRate}
           onChange={handleSampleRateChange}
         >
-          <option value="44100">44100</option>
-          <option value="48000">48000</option>
-          <option value="96000">96000</option>
-          <option value="192000">192000</option>
+          <option value="44100">44.1 kHz</option>
+          <option value="48000">48 kHz</option>
+          <option value="96000">96 kHz</option>
+          <option value="192000">192 kHz</option>
         </select>
       </div>
 
       <div className="preference-item" title="Bit depth controls dynamic range (16-bit: CD quality, 24-bit: studio quality, 32-bit: maximum precision). Only applies to WAV files.">
-        <label className="preference-label">bit depth</label>
+        <label className="preference-label">Bit depth <span className="preference-hint">WAV only</span></label>
         <select
           className="preference-select"
           value={bitDepth}
@@ -167,7 +167,7 @@ export const Preferences: React.FC<PreferencesProps> = ({ onClose }) => {
       </div>
 
       <div className="preference-item" title="Automatically adjust volume to maximize loudness without clipping">
-        <label className="preference-label">normalize audio</label>
+        <label className="preference-label">Normalize volume</label>
         <label className="toggle-switch">
           <input
             type="checkbox"
@@ -179,7 +179,7 @@ export const Preferences: React.FC<PreferencesProps> = ({ onClose }) => {
       </div>
 
       <div className="preference-item" title="Use the browser tab's title as the default recording name">
-        <label className="preference-label">use tab title as sample name</label>
+        <label className="preference-label">Name recordings after the tab</label>
         <label className="toggle-switch">
           <input
             type="checkbox"
@@ -192,7 +192,7 @@ export const Preferences: React.FC<PreferencesProps> = ({ onClose }) => {
 
       {storageSummary && (
         <div className="preference-item" title="Space used by saved recordings, and space still available to the extension">
-          <label className="preference-label">storage</label>
+          <label className="preference-label">Storage</label>
           <span className="preference-value">{storageSummary}</span>
         </div>
       )}

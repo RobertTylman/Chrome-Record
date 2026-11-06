@@ -146,13 +146,12 @@ export const RecentRecordings: React.FC<RecentRecordingsProps> = ({ onSelectReco
   }
 
   return (
+    <>
     <div className="recent-recordings">
       <div className="recordings-list">
         {recordings.map((recording, index) => (
-          <div key={recording.id} className="recording-item">
-            {index === 0 && (
-              <div className="recording-status-dot"></div>
-            )}
+          // The newest recording is marked with a thin bar on its left edge
+          <div key={recording.id} className={`recording-item${index === 0 ? ' is-latest' : ''}`}>
             <div className="recording-info" onClick={async () => {
               // Load full recording from IndexedDB when selected
               try {
@@ -236,6 +235,8 @@ export const RecentRecordings: React.FC<RecentRecordingsProps> = ({ onSelectReco
           </div>
         ))}
       </div>
+    </div>
+    <div className="popup-footer">
       <button
         className="download-all-button"
         onClick={handleDownloadAll}
@@ -246,8 +247,9 @@ export const RecentRecordings: React.FC<RecentRecordingsProps> = ({ onSelectReco
           <path d="M10 2a1 1 0 011 1v8.586l2.293-2.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 111.414-1.414L9 11.586V3a1 1 0 011-1z" />
           <path d="M3 15a1 1 0 011 1h12a1 1 0 110 2H4a1 1 0 01-1-1z" />
         </svg>
-        Download All ({recordings.length})
+        Download all ({recordings.length})
       </button>
     </div>
+    </>
   );
 };

@@ -762,9 +762,9 @@ const Popup: React.FC = () => {
           )}
 
           <div className="time-indicators">
-            <span className="time-label">time {formatTime(displayTime)}</span>
-            <span className="time-label">start {formatTime(displayStartTime)}</span>
-            <span className="time-label">length {formatTime(displayDuration)}</span>
+            <span className="time-label"><span className="time-label-name">Time</span> {formatTime(displayTime)}</span>
+            <span className="time-label"><span className="time-label-name">Start</span> {formatTime(displayStartTime)}</span>
+            <span className="time-label"><span className="time-label-name">Length</span> {formatTime(displayDuration)}</span>
           </div>
 
           {isRecording && remainingRecordingSeconds <= LIMIT_WARNING_SECONDS && (
@@ -812,14 +812,14 @@ const Popup: React.FC = () => {
       )}
 
       {activeTab !== 'recent' && (
-        <>
+        <footer className="popup-footer">
           <button className="bug-report-button" onClick={handleBugReport} title="Submit a bug report">
             Report a bug 🐞
           </button>
           <button className="buy-coffee-button" onClick={() => window.open('https://buymeacoffee.com/TheUglyAlpaca', '_blank')} title="Support the developer">
             Buy me a coffee ☕
           </button>
-        </>
+        </footer>
       )}
     </div>
   );
