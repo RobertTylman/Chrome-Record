@@ -757,37 +757,6 @@ body:not(.light-mode):not(.midnight-mode):not(.forest-mode):not(.rainbow-mode) .
   color: rgba(0, 0, 0, 0.6);
 }
 
-.waveform-toolbar {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  height: 18px;
-  flex-shrink: 0;
-}
-
-.waveform-toolbar.is-hidden {
-  visibility: hidden;
-}
-
-.playback-hint {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 9px;
-  font-weight: 500;
-  color: var(--text-secondary);
-  letter-spacing: 0.6px;
-  text-transform: uppercase;
-}
-
-.playback-hint-icon {
-  flex-shrink: 0;
-}
-
-.playback-hint-gap {
-  width: var(--space-3);
-}
-
 .zoom-controls {
   display: flex;
   align-items: center;

@@ -769,21 +769,6 @@ const Popup: React.FC = () => {
             />
           </div>
 
-          {/* Always takes its space, so the layout doesn't shift when recording starts or stops */}
-          <div className={`waveform-toolbar${!isRecording && audioBlob ? '' : ' is-hidden'}`} aria-hidden={isRecording || !audioBlob}>
-            <span className="playback-hint">
-              <svg className="playback-hint-icon" width="11" height="11" viewBox="0 0 16 16" fill="currentColor" aria-label="Click">
-                <path d="M3 1.5v11.8l3.1-3 2.1 4.9 2-0.9-2.1-4.8h4.4z" />
-              </svg>
-              to seek
-              <span className="playback-hint-gap" />
-              <svg className="playback-hint-icon" width="13" height="11" viewBox="0 0 18 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-label="Scroll">
-                <path d="M1.5 6h15M5 2.5L1.5 6 5 9.5M13 2.5L16.5 6 13 9.5" />
-              </svg>
-              to pan & zoom
-            </span>
-          </div>
-
           <div className="time-readout">
             <div className="time-readout-side">
               <span className="time-readout-label">Start</span>
