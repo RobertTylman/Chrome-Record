@@ -28,6 +28,10 @@ import { RecordButton } from './components/RecordButton';
 import { RecentRecordings } from './components/RecentRecordings';
 import { Preferences } from './components/Preferences';
 import { buildDiagnosticsReport, formatBytes, formatSeconds, installErrorCapture, logError, logEvent } from './utils/diagnostics';
+// Vintage theme fonts, bundled so the popup makes no requests to font servers and works offline:
+// a wide 80s hi-fi face for the title and tabs, and segment-style digits for the display
+import '@fontsource/audiowide/400.css';
+import '@fontsource/share-tech-mono/400.css';
 import './styles/popup.css';
 
 installErrorCapture('Popup');

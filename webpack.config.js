@@ -26,6 +26,12 @@ module.exports = (env, argv) => ({
       {
         test: /\.css$/,
         use: ['style-loader', 'css-loader']
+      },
+      {
+        // Bundled fonts (Vintage theme)
+        test: /\.woff2?$/,
+        type: 'asset/resource',
+        generator: { filename: 'fonts/[name][ext]' }
       }
     ]
   },
