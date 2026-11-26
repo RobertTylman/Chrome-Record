@@ -153,5 +153,5 @@ checkpoints/
 test-results/
 playwright-report/
 tests/.build/
-# Chrome Web Store packages (npm run package)
-release/
+# Chrome Web Store packages (npm run package) are committed with each release
+!release/*.zip
