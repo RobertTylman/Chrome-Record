@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { getRecording, StoredRecording } from '../utils/storageManager';
+import { ClockState, clockSeconds, estimateSeconds, smoothClock } from '../utils/recordingClock';
 
 interface UseAudioRecorderReturn {
   isRecording: boolean;
@@ -11,21 +12,10 @@ interface UseAudioRecorderReturn {
   pauseRecording: () => Promise<void>;
   resumeRecording: () => Promise<void>;
   checkRecordingState: () => Promise<void>;
+  syncRecordedTime: (seconds: number, paused: boolean) => void;
   setAudioBlob: (blob: Blob | null) => void;
   setIsRecording: (recording: boolean) => void;
   setDuration: (duration: number) => void;
-}
-
-interface TimerState {
-  startTime: number;
-  pausedAt: number | null;
-  pausedTotal: number;
-}
-
-// Recorded time excludes paused intervals
-function elapsedSeconds(timer: TimerState): number {
-  const now = timer.pausedAt ?? Date.now();
-  return Math.max(0, (now - timer.startTime - timer.pausedTotal) / 1000);
 }
 
 export function useAudioRecorder(): UseAudioRecorderReturn {
@@ -34,7 +24,8 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [duration, setDuration] = useState(0);
 
-  const timerRef = useRef<TimerState>({ startTime: 0, pausedAt: null, pausedTotal: 0 });
+  const clockRef = useRef<ClockState>({ seconds: 0, at: 0, paused: false, synced: false });
+  const shownRef = useRef(0);
   const durationFrameRef = useRef<number | null>(null);
 
   const stopTimer = useCallback(() => {
@@ -44,20 +35,34 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
     }
   }, []);
 
-  const startTimer = useCallback((timer: TimerState) => {
-    timerRef.current = timer;
-    setDuration(elapsedSeconds(timer));
+  const showClock = useCallback(() => {
+    shownRef.current = smoothClock(clockRef.current, shownRef.current);
+    setDuration(shownRef.current);
+  }, []);
+
+  // Runs for the whole recording, paused or not, so corrections from the recorder always show
+  const startTimer = useCallback((clock: ClockState) => {
+    clockRef.current = clock;
+    shownRef.current = clock.seconds;
+    setDuration(clock.seconds);
     // Clear any existing loop first to prevent duplicates when popup reopens
     stopTimer();
     // Update every frame, like the playback clock, so the hundredths tick smoothly
     const tick = () => {
-      setDuration(elapsedSeconds(timerRef.current));
+      showClock();
       durationFrameRef.current = requestAnimationFrame(tick);
     };
     durationFrameRef.current = requestAnimationFrame(tick);
-  }, [stopTimer]);
+  }, [stopTimer, showClock]);
 
   useEffect(() => stopTimer, [stopTimer]);
+
+  const syncRecordedTime = useCallback((seconds: number, paused: boolean) => {
+    const wasSynced = clockRef.current.synced;
+    clockRef.current = { seconds, at: performance.now(), paused, synced: true };
+    // The first report replaces the estimate outright, even if that moves the clock back
+    if (!wasSynced) shownRef.current = seconds;
+  }, []);
 
   // Restore state when the popup is reopened during a recording
   const checkRecordingState = useCallback(async () => {
@@ -67,9 +72,10 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
         setIsRecording(true);
         setIsPaused(!!response.isPaused);
         startTimer({
-          startTime: response.startTime || Date.now(),
-          pausedAt: response.pausedAt || null,
-          pausedTotal: response.pausedTotal || 0
+          seconds: estimateSeconds(response.startTime || Date.now(), response.pausedAt || null, response.pausedTotal || 0),
+          at: performance.now(),
+          paused: !!response.isPaused,
+          synced: false
         });
         // Don't fetch the partial recording while still recording; it is
         // assembled from IndexedDB only when recording stops.
@@ -131,7 +137,7 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
     }
 
     setAudioBlob(null);
-    startTimer({ startTime: Date.now(), pausedAt: null, pausedTotal: 0 });
+    startTimer({ seconds: 0, at: performance.now(), paused: false, synced: false });
     setIsRecording(true);
     setIsPaused(false);
   }, [startTimer]);
@@ -162,23 +168,27 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
     }
   }, [isRecording, stopTimer]);
 
+  // Freeze or restart the local clock; the recorder's next report confirms the exact time
+  const setClockPaused = useCallback((paused: boolean) => {
+    const clock = clockRef.current;
+    clockRef.current = { ...clock, seconds: clockSeconds(clock), at: performance.now(), paused };
+  }, []);
+
   const pauseRecording = useCallback(async () => {
     if (!isRecording || isPaused) return;
     const response = await chrome.runtime.sendMessage({ action: 'pauseRecording' });
     if (!response?.success) throw new Error(response?.error || 'Failed to pause recording');
-    stopTimer();
-    timerRef.current = { ...timerRef.current, pausedAt: response.pausedAt, pausedTotal: response.pausedTotal };
-    setDuration(elapsedSeconds(timerRef.current));
+    setClockPaused(true);
     setIsPaused(true);
-  }, [isRecording, isPaused, stopTimer]);
+  }, [isRecording, isPaused, setClockPaused]);
 
   const resumeRecording = useCallback(async () => {
     if (!isRecording || !isPaused) return;
     const response = await chrome.runtime.sendMessage({ action: 'resumeRecording' });
     if (!response?.success) throw new Error(response?.error || 'Failed to resume recording');
-    startTimer({ ...timerRef.current, pausedAt: null, pausedTotal: response.pausedTotal });
+    setClockPaused(false);
     setIsPaused(false);
-  }, [isRecording, isPaused, startTimer]);
+  }, [isRecording, isPaused, setClockPaused]);
 
   return {
     isRecording,
@@ -190,6 +200,7 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
     pauseRecording,
     resumeRecording,
     checkRecordingState,
+    syncRecordedTime,
     setAudioBlob,
     setIsRecording,
     setDuration

@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { formatTime } from '../utils/audioUtils';
 import { LiveWaveform } from '../hooks/useWaveform';
 import { LIVE_LEVELS_PER_SECOND } from '../utils/storageManager';
 
@@ -7,6 +8,11 @@ const MIN_HALF_HEIGHT = 0.75; // silence still shows as a hairline
 const POINT_SPACING = 1; // px between outline points in the saved view
 const LIVE_WINDOW_SECONDS = 5; // recent audio shown while recording
 const LIVE_LEVEL_MS = 1000 / LIVE_LEVELS_PER_SECOND;
+// Width of a trim handle (match .trim-handle in popup.css). The waveform is inset by this much on
+// each side so a handle at the very start or end fits beside it rather than covering audio.
+const TRIM_HANDLE_WIDTH = 8;
+// Alt while dragging a handle moves it this much slower, for fine trimming
+const FINE_DRAG_FACTOR = 0.1;
 // Loudness below this (out of 255, about -16 dB) is not scaled up to fill the box,
 // so near-silence stays small instead of turning into amplified noise
 const MIN_NORMALIZE_PEAK = 40;
@@ -142,26 +148,12 @@ interface WaveformProps {
   duration?: number;
   onSeek?: (time: number) => void;
   isRecording?: boolean;
-  channelMode?: 'mono' | 'stereo';
-  theme?: 'dark' | 'light' | 'midnight' | 'forest' | 'rainbow';
   trimStart?: number;
   trimEnd?: number;
   onTrimChange?: (start: number, end: number) => void;
   liveDataRef?: React.MutableRefObject<LiveWaveform | null>;
-  markers?: number[]; // seconds
-  onMarkerClick?: (time: number) => void;
-  onMarkerRemove?: (index: number) => void;
   onZoomChange?: (multiplier: number) => void;
 }
-
-// Theme-specific trim handle colors
-const trimHandleColors = {
-  dark: { start: '#00d4ff', startText: '#000', end: '#ff6b00', endText: '#fff' },
-  light: { start: '#0077b6', startText: '#fff', end: '#d62828', endText: '#fff' },
-  midnight: { start: '#a78bfa', startText: '#000', end: '#f472b6', endText: '#000' },
-  forest: { start: '#34d399', startText: '#000', end: '#fbbf24', endText: '#000' },
-  rainbow: { start: '#c0c0c0', startText: '#000', end: '#c0c0c0', endText: '#000' }
-};
 
 export const Waveform: React.FC<WaveformProps> = ({
   data,
@@ -175,19 +167,18 @@ export const Waveform: React.FC<WaveformProps> = ({
   duration = 0,
   onSeek,
   isRecording = false,
-  channelMode,
-  theme = 'dark',
   trimStart = 0,
   trimEnd = 0,
   onTrimChange,
   liveDataRef,
-  markers = [],
-  onMarkerClick,
-  onMarkerRemove,
   onZoomChange
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  // The area the waveform is drawn in; times map to positions across it
+  const trackRef = useRef<HTMLDivElement>(null);
+  // The handle being dragged: where the cut is, and how far from it the pointer grabbed the handle
+  const dragRef = useRef<{ time: number; grabOffsetPx: number; lastX: number; fine: boolean } | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const lastPositionRef = useRef<number>(-1);
 
@@ -196,6 +187,7 @@ export const Waveform: React.FC<WaveformProps> = ({
 
   // Drag states
   const [draggingHandle, setDraggingHandle] = useState<'start' | 'end' | null>(null);
+  const [hoveredHandle, setHoveredHandle] = useState<'start' | 'end' | null>(null);
   const [isPanning, setIsPanning] = useState(false);
   const panStartRef = useRef<{ x: number; scrollOffset: number } | null>(null);
 
@@ -224,8 +216,8 @@ export const Waveform: React.FC<WaveformProps> = ({
 
   // Convert screen X position to time
   const getTimeFromX = useCallback((clientX: number): number => {
-    if (!containerRef.current || !duration) return 0;
-    const rect = containerRef.current.getBoundingClientRect();
+    if (!trackRef.current || !duration) return 0;
+    const rect = trackRef.current.getBoundingClientRect();
     const x = clientX - rect.left;
     const percentage = Math.max(0, Math.min(1, x / rect.width));
     const { startTime, visibleDuration } = getVisibleRange();
@@ -336,20 +328,6 @@ export const Waveform: React.FC<WaveformProps> = ({
         if (displayPeak === 0) displayPeak = targetPeak; // e.g. popup reopened mid-recording
         else if (targetPeak > displayPeak) displayPeak += (targetPeak - displayPeak) * 0.15;
         drawLayers(ctx, xs, peaks, averages, height, normalizedScale(displayPeak, height), barColor);
-
-        // Markers scroll with the audio: a line with a small flag at the top
-        ctx.fillStyle = theme === 'light' ? 'rgba(0, 0, 0, 0.55)' : 'rgba(255, 255, 255, 0.8)';
-        for (const marker of live.markers || []) {
-          const x = width - (newest - marker * LIVE_LEVELS_PER_SECOND) * levelWidth;
-          if (x < 0 || x > width) continue;
-          ctx.fillRect(Math.round(x), 0, 1, height);
-          ctx.beginPath();
-          ctx.moveTo(x, 0);
-          ctx.lineTo(x + 6, 0);
-          ctx.lineTo(x, 7);
-          ctx.closePath();
-          ctx.fill();
-        }
         ctx.fillStyle = fade;
         ctx.fillRect(0, 0, width * 0.2, height);
       }
@@ -368,7 +346,7 @@ export const Waveform: React.FC<WaveformProps> = ({
         animationFrameRef.current = null;
       }
     };
-  }, [isRecording, liveDataRef, width, height, barColor, backgroundColor, theme]);
+  }, [isRecording, liveDataRef, width, height, barColor, backgroundColor]);
 
   // =====================================================
   // PLAYBACK RENDERING (uses data prop, zoom, scroll, etc.)
@@ -483,10 +461,37 @@ export const Waveform: React.FC<WaveformProps> = ({
   };
 
   // Handle mouse down for trim handles
+  // The cut point stays exactly where it was relative to the pointer, so the handle's tip (not the
+  // pointer) marks the cut and nothing jumps when the handle is grabbed
   const handleTrimMouseDown = (e: React.MouseEvent, handle: 'start' | 'end') => {
     e.stopPropagation();
     e.preventDefault();
+    const time = handle === 'start' ? trimStart : (trimEnd > 0 && trimEnd < duration ? trimEnd : duration);
+    dragRef.current = { time, grabOffsetPx: e.clientX - clientXOfTime(time), lastX: e.clientX, fine: e.altKey };
     setDraggingHandle(handle);
+  };
+
+  // Screen x of a time in the current view (not clamped to the view)
+  const clientXOfTime = (time: number): number => {
+    const rect = trackRef.current?.getBoundingClientRect();
+    const { startTime, visibleDuration } = getVisibleRange();
+    if (!rect || visibleDuration <= 0) return 0;
+    return rect.left + ((time - startTime) / visibleDuration) * rect.width;
+  };
+
+  // Arrow keys nudge a focused handle by 0.1 s (1 s with Shift, 0.01 s with Alt), with the same
+  // limits as dragging
+  const handleTrimKeyDown = (e: React.KeyboardEvent, handle: 'start' | 'end') => {
+    if (!onTrimChange || !duration || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const step = (e.key === 'ArrowLeft' ? -1 : 1) * (e.shiftKey ? 1 : e.altKey ? 0.01 : 0.1);
+    const end = trimEnd > 0 && trimEnd < duration ? trimEnd : duration;
+    if (handle === 'start') {
+      onTrimChange(Math.max(0, Math.min(trimStart + step, end - 0.1)), end);
+    } else {
+      onTrimChange(trimStart, Math.min(duration, Math.max(end + step, trimStart + 0.1)));
+    }
   };
 
   // Handle mouse down for panning
@@ -503,8 +508,25 @@ export const Waveform: React.FC<WaveformProps> = ({
     if (!draggingHandle) return;
 
     const handleMouseMove = (e: MouseEvent) => {
-      if (!onTrimChange || !duration) return;
-      const time = getTimeFromX(e.clientX);
+      const drag = dragRef.current;
+      const rect = trackRef.current?.getBoundingClientRect();
+      if (!onTrimChange || !duration || !drag || !rect) return;
+      const { startTime, visibleDuration } = getVisibleRange();
+      const secondsPerPx = visibleDuration / rect.width;
+      if (e.altKey) {
+        // Fine: move by a tenth of the pointer's movement
+        drag.time += (e.clientX - drag.lastX) * secondsPerPx * FINE_DRAG_FACTOR;
+        drag.fine = true;
+      } else {
+        // Coming out of fine mode, keep the cut where it is and follow the pointer from here
+        if (drag.fine) {
+          drag.grabOffsetPx = e.clientX - (rect.left + (drag.time - startTime) / secondsPerPx);
+          drag.fine = false;
+        }
+        drag.time = startTime + (e.clientX - drag.grabOffsetPx - rect.left) * secondsPerPx;
+      }
+      drag.lastX = e.clientX;
+      const time = drag.time;
       if (draggingHandle === 'start') {
         const maxStart = trimEnd > 0 ? trimEnd - 0.1 : duration - 0.1;
         onTrimChange(Math.max(0, Math.min(time, maxStart)), trimEnd || duration);
@@ -515,6 +537,7 @@ export const Waveform: React.FC<WaveformProps> = ({
     };
 
     const handleMouseUp = () => {
+      dragRef.current = null;
       setDraggingHandle(null);
     };
 
@@ -525,15 +548,15 @@ export const Waveform: React.FC<WaveformProps> = ({
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [draggingHandle, duration, onTrimChange, trimStart, trimEnd, getTimeFromX]);
+  }, [draggingHandle, duration, onTrimChange, trimStart, trimEnd, getVisibleRange]);
 
   // Handle panning
   useEffect(() => {
     if (!isPanning) return;
 
     const handleMouseMove = (e: MouseEvent) => {
-      if (!panStartRef.current || !containerRef.current) return;
-      const rect = containerRef.current.getBoundingClientRect();
+      if (!panStartRef.current || !trackRef.current) return;
+      const rect = trackRef.current.getBoundingClientRect();
       const deltaX = e.clientX - panStartRef.current.x;
       const deltaRatio = deltaX / rect.width / zoom;
       const newOffset = panStartRef.current.scrollOffset - deltaRatio;
@@ -613,6 +636,16 @@ export const Waveform: React.FC<WaveformProps> = ({
   const trimStartPercent = isAtStart ? 0 : (safeDuration > 0 ? Math.max(0, getXPercentFromTime(trimStart)) : 0);
   const trimEndPercent = isAtEnd ? 100 : (safeDuration > 0 ? Math.min(100, getXPercentFromTime(trimEnd)) : 100);
 
+  // The selection in seconds, and where its edges fall in the view (clamped when zoomed past them)
+  const selectionStart = isAtStart ? 0 : trimStart;
+  const selectionEnd = isAtEnd ? safeDuration : trimEnd;
+  const rawFrameLeft = safeDuration > 0 ? getXPercentFromTime(selectionStart) : 0;
+  const rawFrameRight = safeDuration > 0 ? getXPercentFromTime(selectionEnd) : 100;
+  const frameVisible = rawFrameRight > 0 && rawFrameLeft < 100;
+  const frameLeft = Math.max(0, Math.min(100, rawFrameLeft));
+  const frameRight = Math.max(0, Math.min(100, rawFrameRight));
+  const activeHandle = draggingHandle || hoveredHandle;
+
   return (
     <div
       ref={containerRef}
@@ -627,195 +660,94 @@ export const Waveform: React.FC<WaveformProps> = ({
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        userSelect: 'none'
+        userSelect: 'none',
+        // Fills the inset beside the waveform where the handles sit at the very start and end
+        backgroundColor
       }}
     >
+      <div
+        ref={trackRef}
+        className="waveform-track"
+        style={{ position: 'absolute', top: 0, bottom: 0, left: TRIM_HANDLE_WIDTH, right: TRIM_HANDLE_WIDTH }}
+      >
+        <canvas
+          ref={canvasRef}
+          width={width}
+          height={height}
+          style={{
+            width: '100%',
+            height: '100%',
+            display: 'block'
+          }}
+        />
 
-      {channelMode && (
-        <div className="waveform-channel-indicator">
-          {channelMode === 'mono' ? 'Mono' : 'Stereo'}
-        </div>
-      )}
-      <canvas
-        ref={canvasRef}
-        width={width}
-        height={height}
-        style={{
-          width: '100%',
-          height: '100%',
-          display: 'block'
-        }}
-      />
+        {/* Trim: the parts outside the selection are shaded and a frame runs along the top and bottom
+            of the selection. Each handle sits just outside the selection, so its inner edge is
+            exactly the cut and the kept audio starts right at its tip. */}
+        {!isRecording && onTrimChange && safeDuration > 0 && frameVisible && (
+          <>
+            {frameLeft > 0 && <div className="trim-shade" style={{ left: -TRIM_HANDLE_WIDTH, width: `calc(${frameLeft}% + ${TRIM_HANDLE_WIDTH}px)` }} />}
+            {frameRight < 100 && <div className="trim-shade" style={{ left: `${frameRight}%`, right: -TRIM_HANDLE_WIDTH }} />}
+            <div className="trim-frame" style={{ left: `${frameLeft}%`, width: `${frameRight - frameLeft}%` }} />
 
-      {/* Markers: click the number to jump there, double-click to remove */}
-      {!isRecording && safeDuration > 0 && markers.map((time, index) => {
-        const percent = getXPercentFromTime(time);
-        if (percent < 0 || percent > 100) return null;
-        const minutes = Math.floor(time / 60);
-        const seconds = (time % 60).toFixed(2).padStart(5, '0');
-        return (
-          <div key={`${index}-${time}`} className={`waveform-marker${theme === 'light' ? ' light' : ''}`} style={{ left: `${percent}%` }}>
-            <div className="waveform-marker-tab" onMouseDown={(e) => e.stopPropagation()}>
-              <button
-                className="waveform-marker-label"
-                title={`Marker ${index + 1} · ${minutes}:${seconds}\nClick to jump · double-click to remove`}
-                onClick={(e) => { e.stopPropagation(); onMarkerClick?.(time); }}
-                onDoubleClick={(e) => { e.stopPropagation(); onMarkerRemove?.(index); }}
+            {isStartHandleVisible && (
+              <div
+                className={`trim-handle start${draggingHandle === 'start' ? ' active' : ''}`}
+                style={{ left: `${startHandlePercent}%` }}
+                onMouseDown={(e) => handleTrimMouseDown(e, 'start')}
+                onClick={(e) => e.stopPropagation()}
+                onMouseEnter={() => setHoveredHandle('start')}
+                onMouseLeave={() => setHoveredHandle(null)}
+                onFocus={() => setHoveredHandle('start')}
+                onBlur={() => setHoveredHandle(null)}
+                onKeyDown={(e) => handleTrimKeyDown(e, 'start')}
+                role="slider"
+                tabIndex={0}
+                aria-label="Trim start"
+                aria-valuemin={0}
+                aria-valuemax={safeDuration}
+                aria-valuenow={selectionStart}
+                aria-valuetext={formatTime(selectionStart)}
+                title="Drag to trim the start (hold Alt for fine control) · arrow keys nudge"
               >
-                {index + 1}
-              </button>
-              {onMarkerRemove && (
-                <button
-                  className="waveform-marker-remove"
-                  title={`Remove marker ${index + 1}`}
-                  aria-label={`Remove marker ${index + 1}`}
-                  onClick={(e) => { e.stopPropagation(); onMarkerRemove(index); }}
-                >
-                  ×
-                </button>
-              )}
-            </div>
-          </div>
-        );
-      })}
-
-      {/* Dimming Overlays */}
-      {trimStart > 0 && trimStartPercent > 0 && (
-        <div style={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          height: '100%',
-          width: `${Math.max(0, trimStartPercent)}%`,
-          backgroundColor: 'rgba(0, 0, 0, 0.6)',
-          pointerEvents: 'none'
-        }} />
-      )}
-
-      {trimEnd > 0 && trimEnd < duration && trimEndPercent < 100 && (
-        <div style={{
-          position: 'absolute',
-          top: 0,
-          left: `${Math.min(100, trimEndPercent)}%`,
-          height: '100%',
-          right: 0,
-          backgroundColor: 'rgba(0, 0, 0, 0.6)',
-          pointerEvents: 'none'
-        }} />
-      )}
-
-      {/* Drag Handles */}
-      {!isRecording && onTrimChange && duration > 0 && (
-        <>
-          {/* Start Handle */}
-          {isStartHandleVisible && (
-            <div
-              onMouseDown={(e) => handleTrimMouseDown(e, 'start')}
-              style={{
-                position: 'absolute',
-                top: 0,
-                height: '100%',
-                left: `${startHandlePercent}%`,
-                width: '16px',
-                marginLeft: '-8px',
-                cursor: 'ew-resize',
-                zIndex: 10,
-                display: 'flex',
-                justifyContent: 'center'
-              }}
-            >
-              <div style={{
-                width: '3px',
-                height: '100%',
-                backgroundColor: trimHandleColors[theme].start,
-                boxShadow: `0 0 8px ${trimHandleColors[theme].start}80, 0 0 2px rgba(0,0,0,0.8)`
-              }} />
-              <div style={{
-                position: 'absolute',
-                top: '0',
-                width: '16px',
-                height: '20px',
-                backgroundColor: trimHandleColors[theme].start,
-                borderRadius: '0 0 4px 4px',
-                boxShadow: '0 2px 6px rgba(0,0,0,0.5)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center'
-              }}>
-                <span style={{ fontSize: '10px', color: trimHandleColors[theme].startText, fontWeight: 'bold' }}>◀</span>
+                <span className="trim-grip" />
               </div>
-              <div style={{
-                position: 'absolute',
-                bottom: '0',
-                width: '16px',
-                height: '20px',
-                backgroundColor: trimHandleColors[theme].start,
-                borderRadius: '4px 4px 0 0',
-                boxShadow: '0 -2px 6px rgba(0,0,0,0.5)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center'
-              }}>
-                <span style={{ fontSize: '10px', color: trimHandleColors[theme].startText, fontWeight: 'bold' }}>◀</span>
-              </div>
-            </div>
-          )}
+            )}
 
-          {/* End Handle */}
-          {isEndHandleVisible && (
-            <div
-              onMouseDown={(e) => handleTrimMouseDown(e, 'end')}
-              style={{
-                position: 'absolute',
-                top: 0,
-                height: '100%',
-                left: `${endHandlePercent}%`,
-                width: '16px',
-                marginLeft: '-8px',
-                cursor: 'ew-resize',
-                zIndex: 10,
-                display: 'flex',
-                justifyContent: 'center'
-              }}
-            >
-              <div style={{
-                width: '3px',
-                height: '100%',
-                backgroundColor: trimHandleColors[theme].end,
-                boxShadow: `0 0 8px ${trimHandleColors[theme].end}80, 0 0 2px rgba(0,0,0,0.8)`
-              }} />
-              <div style={{
-                position: 'absolute',
-                top: '0',
-                width: '16px',
-                height: '20px',
-                backgroundColor: trimHandleColors[theme].end,
-                borderRadius: '0 0 4px 4px',
-                boxShadow: '0 2px 6px rgba(0,0,0,0.5)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center'
-              }}>
-                <span style={{ fontSize: '10px', color: trimHandleColors[theme].endText, fontWeight: 'bold' }}>▶</span>
+            {isEndHandleVisible && (
+              <div
+                className={`trim-handle end${draggingHandle === 'end' ? ' active' : ''}`}
+                style={{ left: `${endHandlePercent}%` }}
+                onMouseDown={(e) => handleTrimMouseDown(e, 'end')}
+                onClick={(e) => e.stopPropagation()}
+                onMouseEnter={() => setHoveredHandle('end')}
+                onMouseLeave={() => setHoveredHandle(null)}
+                onFocus={() => setHoveredHandle('end')}
+                onBlur={() => setHoveredHandle(null)}
+                onKeyDown={(e) => handleTrimKeyDown(e, 'end')}
+                role="slider"
+                tabIndex={0}
+                aria-label="Trim end"
+                aria-valuemin={0}
+                aria-valuemax={safeDuration}
+                aria-valuenow={selectionEnd}
+                aria-valuetext={formatTime(selectionEnd)}
+                title="Drag to trim the end (hold Alt for fine control) · arrow keys nudge"
+              >
+                <span className="trim-grip" />
               </div>
-              <div style={{
-                position: 'absolute',
-                bottom: '0',
-                width: '16px',
-                height: '20px',
-                backgroundColor: trimHandleColors[theme].end,
-                borderRadius: '4px 4px 0 0',
-                boxShadow: '0 -2px 6px rgba(0,0,0,0.5)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center'
-              }}>
-                <span style={{ fontSize: '10px', color: trimHandleColors[theme].endText, fontWeight: 'bold' }}>▶</span>
-              </div>
-            </div>
-          )}
-        </>
-      )}
+            )}
+
+            {/* Time of the handle being dragged or pointed at, just inside the selection */}
+            {activeHandle === 'start' && isStartHandleVisible && (
+              <div className="trim-time start" style={{ left: `${startHandlePercent}%` }}>{formatTime(selectionStart)}</div>
+            )}
+            {activeHandle === 'end' && isEndHandleVisible && (
+              <div className="trim-time end" style={{ left: `${endHandlePercent}%` }}>{formatTime(selectionEnd)}</div>
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
 };

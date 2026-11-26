@@ -62,13 +62,6 @@ export const ZoomOutIcon: React.FC<IconProps> = (props) => (
   </Outline>
 );
 
-export const MarkerIcon: React.FC<IconProps> = (props) => (
-  <Outline {...props}>
-    <path d="M5.5 21V4" />
-    <path d="M5.5 4.5h12l-2.6 4 2.6 4h-12" />
-  </Outline>
-);
-
 export const PlayIcon: React.FC<IconProps> = ({ size = 22 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
     <path d="M8 5.6v12.8a1 1 0 001.52.85l10.16-6.4a1 1 0 000-1.7L9.52 4.75A1 1 0 008 5.6z" />

@@ -1,6 +1,6 @@
 import React from 'react';
 import { formatZoom } from '../utils/zoom';
-import { LoopIcon, MarkerIcon, PauseIcon, PlayIcon, SkipBackIcon, ZoomInIcon, ZoomOutIcon } from './icons';
+import { LoopIcon, PauseIcon, PlayIcon, SkipBackIcon, ZoomInIcon, ZoomOutIcon } from './icons';
 
 interface TransportControlsProps {
   onPlay: () => void;
@@ -11,7 +11,6 @@ interface TransportControlsProps {
   isLooping: boolean;
   isRecording?: boolean;
   leading?: React.ReactNode; // shown at the left end of the row (zoom controls)
-  trailing?: React.ReactNode; // shown at the right end of the row (marker button)
 }
 
 // Transport row like a recorder's: back to start, play/pause, loop. Play sits in the exact
@@ -24,8 +23,7 @@ export const TransportControls: React.FC<TransportControlsProps> = React.memo(({
   isPlaying,
   isLooping,
   isRecording = false,
-  leading,
-  trailing
+  leading
 }) => {
   const playLabel = isRecording
     ? (isPlaying ? 'Pause recording' : 'Resume recording')
@@ -70,7 +68,6 @@ export const TransportControls: React.FC<TransportControlsProps> = React.memo(({
         >
           <LoopIcon size={22} />
         </button>
-        {trailing}
       </div>
     </div>
   );
@@ -109,24 +106,4 @@ export const ZoomControls: React.FC<ZoomControlsProps> = React.memo(({ onZoomIn,
       <ZoomInIcon />
     </button>
   </div>
-));
-
-interface MarkerButtonProps {
-  onAddMarker: () => void;
-  count: number;
-  disabled?: boolean;
-}
-
-// Adds a marker at the current recording time, or at the playhead after recording
-export const MarkerButton: React.FC<MarkerButtonProps> = React.memo(({ onAddMarker, count, disabled = false }) => (
-  <button
-    className="control-button small marker-button has-tooltip tooltip-end"
-    onClick={onAddMarker}
-    aria-label="Add marker"
-    data-tooltip={count > 0 ? `Add marker (M) · ${count} so far` : 'Add marker (M)'}
-    disabled={disabled}
-  >
-    <MarkerIcon />
-    {count > 0 && <span className="marker-count">{count}</span>}
-  </button>
 ));

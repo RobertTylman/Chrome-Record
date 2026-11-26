@@ -33,6 +33,7 @@ interface Message {
   message?: string;
   level?: string;
   reason?: string;
+  error?: string;
 }
 
 // Persist defaults so the Settings screen and the download logic always agree
@@ -97,10 +98,13 @@ chrome.runtime.onMessage.addListener((message: Message, sender: chrome.runtime.M
   // The offscreen document stopped and saved a recording on its own (length limit, tab closed)
   if (message.action === 'recordingAutoStopped') {
     (async () => {
+      const why = message.reason === 'ended' ? 'tab closed' : 'length limit';
       if (message.recording?.id) {
         // The popup may be closed; it loads this recording the next time it opens
         await chrome.storage.local.set({ autoSavedRecordingId: message.recording.id, autoSavedReason: message.reason });
-        logEvent('Recording', `Auto-stopped (${message.reason === 'ended' ? 'tab closed' : 'length limit'}) and saved: ${describeRecording(message.recording)}`);
+        logEvent('Recording', `Auto-stopped (${why}) and saved: ${describeRecording(message.recording)}`);
+      } else if (!message.error) {
+        logEvent('Recording', `Auto-stopped (${why}): no audio captured, nothing saved`);
       }
       await chrome.offscreen.closeDocument().catch(() => { });
       await chrome.storage.local.remove(RECORDING_STATE_KEYS);

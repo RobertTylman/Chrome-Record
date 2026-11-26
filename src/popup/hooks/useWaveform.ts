@@ -14,7 +14,6 @@ export interface LiveWaveform {
   levels: number[]; // peak level per window
   avgLevels: number[]; // average level per window
   loudest: number; // loudest level of the whole recording so far
-  markers: number[]; // marker times in recorded seconds
   total: number; // levels produced since the recording started
   receivedAt: number; // performance.now() when `total` last increased, for smooth scrolling
 }
@@ -24,7 +23,7 @@ interface UseWaveformReturn {
   liveWaveformDataRef: React.MutableRefObject<LiveWaveform | null>;
   analyzeAudio: (audioBlob: Blob, peaks?: WaveformPeaks) => Promise<WaveformPeaks | null>;
   clearWaveform: () => void;
-  listenForRemoteUpdates: () => () => void;
+  listenForRemoteUpdates: (onRecordedTime?: (seconds: number, paused: boolean) => void) => () => void;
 }
 
 // Live levels kept in the popup: a little more than the visible window
@@ -67,15 +66,17 @@ export function useWaveform(): UseWaveformReturn {
 
   const liveWaveformDataRef = useRef<LiveWaveform | null>(null);
 
-  // Live waveform from the offscreen recorder, streamed over a port only while the popup shows it
-  const listenForRemoteUpdates = useCallback(() => {
+  // Live waveform from the offscreen recorder, streamed over a port only while the popup shows it.
+  // onRecordedTime receives the recorder's own clock (recorded seconds, pauses excluded).
+  const listenForRemoteUpdates = useCallback((onRecordedTime?: (seconds: number, paused: boolean) => void) => {
     let port: chrome.runtime.Port | null = null;
     let retryTimer: number | null = null;
     let active = true;
 
     const connect = () => {
       port = chrome.runtime.connect({ name: 'waveform' });
-      port.onMessage.addListener((message: { levels: number[]; avgLevels: number[]; loudest: number; markers?: number[]; total: number }) => {
+      port.onMessage.addListener((message: { levels: number[]; avgLevels: number[]; loudest: number; total: number; seconds?: number; paused?: boolean }) => {
+        if (typeof message.seconds === 'number') onRecordedTime?.(message.seconds, !!message.paused);
         // Update the REF, not state - avoids React render cycle; Waveform polls it in its rAF loop
         const live = liveWaveformDataRef.current;
         if (!live || message.levels.length !== message.total - live.total) {
@@ -84,7 +85,6 @@ export function useWaveform(): UseWaveformReturn {
             levels: message.levels.slice(-LIVE_LEVELS_KEPT),
             avgLevels: message.avgLevels.slice(-LIVE_LEVELS_KEPT),
             loudest: message.loudest,
-            markers: message.markers || [],
             total: message.total,
             receivedAt: performance.now()
           };
@@ -97,7 +97,6 @@ export function useWaveform(): UseWaveformReturn {
           live.avgLevels.splice(0, live.avgLevels.length - LIVE_LEVELS_KEPT);
         }
         live.loudest = message.loudest;
-        live.markers = message.markers || live.markers;
         live.total = message.total;
         live.receivedAt = performance.now();
       });

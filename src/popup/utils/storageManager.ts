@@ -29,7 +29,6 @@ export interface StoredRecording {
   metadata: RecordingMetadata;
   audio: Blob;
   peaks?: WaveformPeaks;
-  markers: number[]; // seconds from the start of the recording, ascending
 }
 
 export interface RecordingChunk {
@@ -39,8 +38,6 @@ export interface RecordingChunk {
   peakMax: Uint8Array;
   peakAvg: Uint8Array;
   peakRate?: number; // peaks per second; absent on chunks written before rates were recorded (20)
-  markers?: number[]; // markers added since the previous chunk, in recorded seconds
-  removedMarkers?: number[]; // markers undone after an earlier chunk already saved them
 }
 
 // Stored waveform resolution. Higher values give more detail when zoomed in (100/s is about
@@ -152,8 +149,7 @@ export async function deleteTempData(key: string): Promise<void> {
 export async function saveRecording(
   metadata: RecordingMetadata,
   audio: Blob,
-  peaks?: WaveformPeaks,
-  markers: number[] = []
+  peaks?: WaveformPeaks
 ): Promise<RecordingMetadata> {
   const db = await openDB();
   const fullMetadata: RecordingMetadata = {
@@ -162,7 +158,7 @@ export async function saveRecording(
     mimeType: metadata.mimeType || audio.type || undefined
   };
   const transaction = db.transaction([STORE_NAME, METADATA_STORE_NAME], 'readwrite');
-  transaction.objectStore(STORE_NAME).put({ ...fullMetadata, audio, peaks, markers });
+  transaction.objectStore(STORE_NAME).put({ ...fullMetadata, audio, peaks });
   transaction.objectStore(METADATA_STORE_NAME).put(fullMetadata);
   await transactionDone(transaction);
   return fullMetadata;
@@ -184,7 +180,7 @@ export async function getRecording(id: string): Promise<StoredRecording | null> 
     const legacyType = result.format === 'wav' ? 'audio/wav' : 'audio/webm';
     audio = new Blob([result.audioData], { type: legacyType });
   }
-  return { metadata, audio, peaks: result.peaks, markers: Array.isArray(result.markers) ? result.markers : [] };
+  return { metadata, audio, peaks: result.peaks };
 }
 
 // Get all recording metadata (without audio data for list view)
@@ -242,21 +238,6 @@ export async function updateRecordingName(id: string, newName: string): Promise<
   recording.name = newName;
   store.put(recording);
   metadataStore.put(toMetadata(recording));
-  return transactionDone(transaction);
-}
-
-// Replace a recording's markers (seconds, any order)
-export async function updateRecordingMarkers(id: string, markers: number[]): Promise<void> {
-  const db = await openDB();
-  const transaction = db.transaction([STORE_NAME], 'readwrite');
-  const store = transaction.objectStore(STORE_NAME);
-  const recording = await requestToPromise(store.get(id));
-  if (!recording) {
-    transaction.abort();
-    return;
-  }
-  recording.markers = [...markers].sort((a, b) => a - b);
-  store.put(recording);
   return transactionDone(transaction);
 }
 
@@ -330,9 +311,7 @@ export async function finalizeRecordingSession(
       format: 'webm',
       channelMode: details.channelMode || 'stereo',
       mimeType: 'audio/webm'
-    }, audio, peakCount > 0 ? { rate: peakRate, max, avg } : undefined,
-      withoutRemoved(chunks.flatMap(c => c.markers || []), chunks.flatMap(c => c.removedMarkers || []))
-        .filter(t => t <= duration).sort((a, b) => a - b));
+    }, audio, peakCount > 0 ? { rate: peakRate, max, avg } : undefined);
   }
 
   const deleteTransaction = db.transaction([CHUNK_STORE_NAME], 'readwrite');
@@ -340,16 +319,6 @@ export async function finalizeRecordingSession(
   await transactionDone(deleteTransaction);
 
   return metadata;
-}
-
-// Markers minus any that were undone (matched by time)
-function withoutRemoved(markers: number[], removed: number[]): number[] {
-  const remaining = [...markers];
-  for (const time of removed) {
-    const index = remaining.findIndex(m => Math.abs(m - time) < 0.001);
-    if (index >= 0) remaining.splice(index, 1);
-  }
-  return remaining;
 }
 
 // List session ids that still have chunks in storage
