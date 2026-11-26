@@ -1,9 +1,10 @@
 {
   "name": "audio-splitter-chrome-extension",
-  "version": "1.0.6",
+  "version": "1.1.0",
   "description": "A Chrome extension to record browser tab audio with waveform editing and WAV/MP3/OGG/WebM export",
   "scripts": {
     "build": "webpack --mode production",
+    "package": "npm run build && node scripts/package.js",
     "dev": "webpack --mode development --watch",
     "clean": "rm -rf dist",
     "generate-icons": "node scripts/generate-icons.js",

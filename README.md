@@ -36,7 +36,7 @@ A Chrome extension for recording browser audio output with waveform visualizatio
 - **Non-Muting Recording**: Audio continues to play through your speakers/headphones while recording.
 - **Background Recording**: Recording continues even when the extension popup is closed.
 - **Real-time Waveform Visualization**: See live, high-performance waveform visualization while recording.
-- **Optimized Internal Storage**: Recordings are stored internally as WAV to ensure zero-loss quality and eliminate the need for re-conversion when changing export preferences.
+- **Optimized Internal Storage**: Recordings are stored as the original compressed WebM/Opus and converted only when downloaded, so changing export preferences never loses quality.
 - **Tab Title Naming**: Optional automatic naming using the current tab title (available in Preferences).
 
 ### Playback & Controls
@@ -183,8 +183,7 @@ Use this option for development or to get the very latest improvements and featu
 ### Permissions
 
 - `tabCapture` - To capture audio from browser tabs.
-- `tabs` - To access current tab information for naming.
-- `activeTab` - To interact with the current active tab.
+- `activeTab` - To record the tab you open the extension on, and read its title when naming recordings after the tab.
 - `offscreen` - To record in the background while the popup is closed.
 - `storage` / `unlimitedStorage` - To save recordings and preferences without hitting the default storage quota.
 

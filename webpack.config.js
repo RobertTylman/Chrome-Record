@@ -2,7 +2,7 @@ const path = require('path');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
 const CopyWebpackPlugin = require('copy-webpack-plugin');
 
-module.exports = {
+module.exports = (env, argv) => ({
   entry: {
     popup: './src/popup/Popup.tsx',
     background: './src/background/background.ts',
@@ -54,15 +54,17 @@ module.exports = {
     new CopyWebpackPlugin({
       patterns: [
         { from: 'manifest.json', to: 'manifest.json' },
-        { from: 'public/icons', to: 'icons', noErrorOnMissing: true }
+        // Only the PNG icons the manifest uses
+        { from: 'public/icons/*.png', to: 'icons/[name][ext]' }
       ]
     })
   ],
-  devtool: 'source-map',
+  // Source maps only for development builds; the store package ships readable, unminified code
+  devtool: argv.mode === 'production' ? false : 'source-map',
   performance: {
     hints: false // Chrome extensions load from disk, not network — size warnings don't apply
   },
   optimization: {
     minimize: false
   }
-};
+});
