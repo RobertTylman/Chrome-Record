@@ -3,7 +3,7 @@
 import JSZip from 'jszip';
 import { exportAudio, estimateExportSize } from '../popup/utils/audioConverter';
 import { downloadAudio } from '../popup/utils/audioUtils';
-import { exportFilename, getExportOptions } from '../popup/utils/exportUtils';
+import { exportFilename, getExportOptions, withoutAudioExtension } from '../popup/utils/exportUtils';
 import { getRecording, RecordingMetadata } from '../popup/utils/storageManager';
 import { formatSeconds, installErrorCapture, logError, logEvent } from '../popup/utils/diagnostics';
 
@@ -74,7 +74,7 @@ async function run() {
   const useZip = isDownloadAll && recordings.length > 1 && estimatedTotal <= MAX_ZIP_BYTES;
   const zip = useZip ? new JSZip() : null;
   const usedFilenames = new Set<string>();
-  const rows = recordings.map(r => addItemRow(r.name.replace(/\.[^/.]+$/, '')));
+  const rows = recordings.map(r => addItemRow(withoutAudioExtension(r.name)));
   let failures = 0;
 
   titleEl.textContent = recordings.length > 1

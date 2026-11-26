@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { exportAudio } from '../utils/audioConverter';
 import { DownloadIcon, PlayIcon, TrashIcon } from './icons';
 import { downloadAudio } from '../utils/audioUtils';
-import { exportFilename, getExportOptions, openExportTab, shouldExportInTab } from '../utils/exportUtils';
+import { exportFilename, getExportOptions, openExportTab, shouldExportInTab, withoutAudioExtension } from '../utils/exportUtils';
 import { formatBytes, formatSeconds, logError, logEvent } from '../utils/diagnostics';
 import { getAllRecordingsMetadata, getRecording, deleteRecording, RecordingMetadata, StoredRecording } from '../utils/storageManager';
 
@@ -167,7 +167,7 @@ export const RecentRecordings: React.FC<RecentRecordingsProps> = ({ onSelectReco
               }
             }}>
               <div className="recording-name-row">
-                <span className="recording-name">{recording.name.replace(/\.[^/.]+$/, '')}</span>
+                <span className="recording-name">{withoutAudioExtension(recording.name)}</span>
               </div>
               <div className="recording-date-row">
                 <span className="recording-date-secondary">{formatDate(recording.timestamp)}</span>

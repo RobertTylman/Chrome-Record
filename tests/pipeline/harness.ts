@@ -9,6 +9,8 @@ import {
 import { exportAudio, computeWaveformPeaks } from '../../src/popup/utils/audioConverter';
 import { parseWebm } from '../../src/popup/utils/webm';
 import { WavWriter, readWavInfo } from '../../src/popup/utils/wav';
+import { exportFilename } from '../../src/popup/utils/exportUtils';
+import { inspectWav, inspectOgg, mediaElementDuration } from './inspect';
 
 type Result = { name: string; ok: boolean; error?: string; [key: string]: any };
 const results: Result[] = [];
@@ -94,10 +96,13 @@ async function decode(blob: Blob) {
   const ctx = new OfflineAudioContext(2, 1, 48000);
   const buffer = await ctx.decodeAudioData(await blob.arrayBuffer());
   const freqs = Array.from({ length: buffer.numberOfChannels }, (_, c) => zeroCrossingFrequency(buffer.getChannelData(c), buffer.sampleRate));
+  // Peak level away from the first and last 50 ms: lossy codecs (MP3 especially) overshoot at a
+  // file's abrupt start and end, which made this check flaky
+  const edge = Math.round(buffer.sampleRate * 0.05);
   let peak = 0;
   for (let c = 0; c < buffer.numberOfChannels; c++) {
     const data = buffer.getChannelData(c);
-    for (let i = 0; i < data.length; i++) peak = Math.max(peak, Math.abs(data[i]));
+    for (let i = edge; i < data.length - edge; i++) peak = Math.max(peak, Math.abs(data[i]));
   }
   return { duration: +buffer.duration.toFixed(3), channels: buffer.numberOfChannels, freqs, peak: +peak.toFixed(3) };
 }
@@ -169,7 +174,9 @@ async function main() {
       let progress = 0;
       const out = await exportAudio(recording.audio, { ...options, format: options.format, duration, onProgress: (f) => { progress = f; } });
       if (name === 'wav-16-44100-stereo') wav = out;
-      return { magic: await magic(out), size: out.size, progress, passthrough: out === recording.audio || out.size === recording.audio.size, ...(await decode(out)) };
+      const structure = options.format === 'wav' ? await inspectWav(out) : options.format === 'ogg' ? await inspectOgg(out) : undefined;
+      const mediaDuration = options.format === 'webm' ? await mediaElementDuration(out) : undefined;
+      return { magic: await magic(out), size: out.size, type: out.type, progress, structure, mediaDuration, ...(await decode(out)) };
     });
   }
 
@@ -182,6 +189,12 @@ async function main() {
     const out = await exportAudio(wav!, { format: 'wav', sampleRate: 22050, channels: 1, bitDepth: 16, duration });
     return { magic: await magic(out), ...(await decode(out)) };
   });
+
+  await check('filenames', async () => ({
+    names: [
+      'recording 11/26/2026, 02:56:00 PM', 'Dr. Who - Episode 1.5 - YouTube', 'interview.wav', 'interview.WEBM', 'a:b*c?.mp3'
+    ].map(name => exportFilename(name, 'mp3'))
+  }));
 
   await check('rf64-header', async () => {
     const writer = new WavWriter(48000, 2, 16);

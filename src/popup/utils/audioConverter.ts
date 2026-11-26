@@ -426,6 +426,16 @@ function remuxOpusToOgg(track: WebmAudioTrack): Blob {
   return muxer.finish();
 }
 
+// MediaRecorder WebM has no Duration element, so players show no length and cannot seek reliably
+function remuxOpusToWebm(track: WebmAudioTrack): Blob {
+  const opusHead = track.codecPrivate || buildOpusHead(track.channels, 312, OPUS_SAMPLE_RATE);
+  const muxer = new WebmOpusMuxer(track.channels, opusHead, opusHeadPreSkip(opusHead));
+  for (const frame of track.frames) {
+    muxer.addPacket(frame.data, frame.timestampUs, opusPacketSamples(frame.data) * 1e6 / OPUS_SAMPLE_RATE);
+  }
+  return muxer.finish();
+}
+
 export function mimeTypeForFormat(format: string): string {
   return { wav: 'audio/wav', mp3: 'audio/mpeg', ogg: 'audio/ogg', webm: 'audio/webm' }[format] || 'application/octet-stream';
 }
@@ -451,7 +461,7 @@ export async function exportAudio(blob: Blob, options: ExportOptions): Promise<B
 
   // Lossless fast paths for unedited Opus recordings
   if (source.opusTrack && !hasEdits && (format === 'webm' || format === 'ogg')) {
-    const result = format === 'webm' ? new Blob([blob], { type: 'audio/webm' }) : remuxOpusToOgg(source.opusTrack);
+    const result = format === 'webm' ? remuxOpusToWebm(source.opusTrack) : remuxOpusToOgg(source.opusTrack);
     onProgress(1);
     return result;
   }

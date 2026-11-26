@@ -18,8 +18,14 @@ export async function getExportOptions(): Promise<ExportOptions> {
   };
 }
 
+// A recording's name without its audio extension. Only audio extensions are removed: tab-title
+// names ("Dr. Who - Episode 1.5 - YouTube") have dots but no extension
+export function withoutAudioExtension(name: string): string {
+  return name.replace(/\.(wav|mp3|ogg|webm)$/i, '');
+}
+
 export function exportFilename(name: string, format: string): string {
-  const nameWithoutExt = (name || 'recording').replace(/\.[^/.]+$/, '');
+  const nameWithoutExt = withoutAudioExtension(name || 'recording');
   const sanitized = nameWithoutExt.replace(/[\/\\:*?"<>|]/g, '_');
   return `${sanitized}.${getFileExtension(format)}`;
 }

@@ -5,7 +5,7 @@ import { useWaveform } from './hooks/useWaveform';
 import { formatTime, formatDate, downloadAudio } from './utils/audioUtils';
 import { DEFAULT_AUDIO_FORMAT, getFileExtension } from './utils/formatUtils';
 import { exportAudio } from './utils/audioConverter';
-import { exportFilename, getExportOptions, openExportTab, shouldExportInTab } from './utils/exportUtils';
+import { exportFilename, getExportOptions, openExportTab, shouldExportInTab, withoutAudioExtension } from './utils/exportUtils';
 import { maxZoomFor } from './utils/zoom';
 import { waveformColors } from './utils/theme';
 import {
@@ -155,7 +155,7 @@ const Popup: React.FC = () => {
       setRecordingDuration(metadata.duration);
       setLoadedAudioDuration(metadata.duration);
     }
-    setRecordingName(metadata.name.replace(/\.[^/.]+$/, ''));
+    setRecordingName(withoutAudioExtension(metadata.name));
     setRecordingTimestamp(new Date(metadata.timestamp));
     setCurrentRecordingId(metadata.id);
     setCurrentRecordingChannelMode((metadata.channelMode as 'mono' | 'stereo') || 'stereo');

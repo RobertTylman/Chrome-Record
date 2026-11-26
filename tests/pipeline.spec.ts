@@ -18,7 +18,7 @@ let server: http.Server;
 type Result = { name: string; ok: boolean; error?: string; [key: string]: any };
 
 // Expected output of each export case (see EXPORT_CASES in pipeline/harness.ts)
-const EXPECTED: Record<string, { magic: string; channels: number; trimmed?: boolean; passthrough?: boolean; normalized?: boolean }> = {
+const EXPECTED: Record<string, { magic: string; channels: number; trimmed?: boolean; normalized?: boolean }> = {
   'wav-16-44100-stereo': { magic: 'RIFF', channels: 2 },
   'wav-24-48000-mono': { magic: 'RIFF', channels: 1 },
   'wav-32-96000-stereo': { magic: 'RIFF', channels: 2 },
@@ -29,7 +29,7 @@ const EXPECTED: Record<string, { magic: string; channels: number; trimmed?: bool
   'ogg-remux': { magic: 'OggS', channels: 2 },
   'ogg-mono': { magic: 'OggS', channels: 1 },
   'ogg-trim': { magic: 'OggS', channels: 2, trimmed: true },
-  'webm-passthrough': { magic: '\x1aE\xdf\xa3', channels: 2, passthrough: true },
+  'webm-passthrough': { magic: '\x1aE\xdf\xa3', channels: 2 },
   'webm-mono': { magic: '\x1aE\xdf\xa3', channels: 1 },
   'webm-trim': { magic: '\x1aE\xdf\xa3', channels: 2, trimmed: true }
 };
@@ -109,7 +109,17 @@ for (const [name, expected] of Object.entries(EXPECTED)) {
     expect(r.progress).toBe(1);
     const expectedDuration = expected.trimmed ? 2 : duration;
     expect(Math.abs(r.duration - expectedDuration)).toBeLessThan(0.15);
-    if (expected.passthrough) expect(r.passthrough).toBe(true);
+    expect(r.type).toBe({ RIFF: 'audio/wav', ID3: 'audio/mpeg', OggS: 'audio/ogg' }[expected.magic] || 'audio/webm');
+    if (r.magic === 'RIFF') {
+      expect(r.structure.headerOk).toBe(true);
+      expect(r.structure.frames).toBe(Math.round(r.duration * r.structure.sampleRate));
+    }
+    if (r.magic === 'OggS') {
+      expect(r.structure).toMatchObject({ crcOk: true, sequenceOk: true, granulesOk: true, bos: true, eos: true });
+      expect(Math.abs(r.structure.seconds - r.duration)).toBeLessThan(0.025);
+    }
+    // Players need the WebM Duration element to show a length and seek
+    if (expected.magic.startsWith('\x1a')) expect(Math.abs(r.mediaDuration - r.duration)).toBeLessThan(0.05);
     if (expected.channels === 2) {
       expect(Math.abs(r.freqs[0] - 440)).toBeLessThan(12);
       expect(Math.abs(r.freqs[1] - 660)).toBeLessThan(15);
@@ -126,6 +136,16 @@ test('legacy WAV recordings still export', () => {
     expect(Math.abs(r.duration - duration)).toBeLessThan(0.15);
   }
   expect(result('legacy-wav-to-wav-22050-mono').channels).toBe(1);
+});
+
+test('download filenames keep dots in recording names', () => {
+  expect(result('filenames').names).toEqual([
+    'recording 11_26_2026, 02_56_00 PM.mp3',
+    'Dr. Who - Episode 1.5 - YouTube.mp3',
+    'interview.mp3',
+    'interview.mp3',
+    'a_b_c_.mp3'
+  ]);
 });
 
 test('WAV over 4 GB is written as RF64', () => {
