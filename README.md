@@ -200,6 +200,19 @@ Builds the extension and runs the Playwright suite in Chromium:
 
 Starting a real tab recording needs a user click on the extension, which automation can't do, so test record/pause/stop on a real tab by hand before releasing.
 
+## Changelog
+
+### 1.1.0
+
+- New Vintage theme styled after a worn 1980s portable tape recorder
+- Redesigned crop handles: easier to spot and precise, cutting exactly at their tip
+- Fine crop control: hold Alt while dragging, or nudge a selected handle with the arrow keys
+- More accurate recording clock and 1-hour limit countdown
+- Recordings that stop automatically now reliably open in the editor
+- WebM downloads now show their length and seek properly
+- Recording names with dots are no longer cut short in downloads
+- Fewer permissions: the extension no longer asks to read your browsing history
+
 ## Experimental & Future Features
 
 > [!IMPORTANT]
