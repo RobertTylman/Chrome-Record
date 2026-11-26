@@ -67,8 +67,8 @@ A Chrome extension for recording browser audio output with waveform visualizatio
 
 ### UI/UX
 - **Modern Design**: Sleek, clean interface using the Inter font.
-- **Multiple Themes**: Choose between **Dark**, **Light**, **Midnight**, and **Forest** themes, each with unique icons and color palettes.
-- **Minimalist Iconography**: Custom-designed theme icons (Sun, Moon, Wave, Tree) and a unified multi-color extension icon representing all themes.
+- **Multiple Themes**: Choose between **Dark**, **Light**, **Midnight**, **Forest**, **Rainbow** and **Vintage** (a retro tape-recorder look) themes, each with unique icons and color palettes.
+- **Minimalist Iconography**: Custom-designed theme icons (Sun, Moon, Wave, Tree, Cassette) and a unified multi-color extension icon representing all themes.
 - **Dynamic Visuals**: Processing state indicators, pulsing recording button, and live waveform processing.
 - **Responsive Layout**: Optimized to fit perfectly within the extension popup without unnecessary scrolling.
 

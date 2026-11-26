@@ -14,7 +14,7 @@ Have a question or a feature request? Please feel free to reach out—we’re al
 Top features:
 * Ultra-high resolution capture with sample rates reaching 192kHz
 * Multi-format export options including WAV, MP3, OGG, and WebM
-* Personalize your workspace with 5 vibrant themes: Light, Dark, Midnight, Forest, and Rainbow
+* Personalize your workspace with 6 themes: Light, Dark, Midnight, Forest, Rainbow, and Vintage
 * Toggle between professional stereo and space-efficient mono modes
 * Precision editing with interactive waveforms, non-destructive trimming, and vertical zoom
 * Intelligent session naming that syncs with your active browser tab

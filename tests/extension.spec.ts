@@ -203,3 +203,17 @@ test('trim handles stay inside the waveform and nudge with the arrow keys', asyn
   expect(endValue).toBeGreaterThan(2.5);
   expect(endValue).toBeLessThan(3.05);
 });
+
+test('theme button cycles to the Vintage theme', async ({ context, extensionId }) => {
+  const page = await context.newPage();
+  await page.goto(`chrome-extension://${extensionId}/popup.html`);
+  await page.evaluate(() => chrome.storage.local.set({ theme: 'rainbow' }));
+  await page.reload();
+  await page.getByTitle('Current Theme: Rainbow').click();
+  await expect(page.locator('body')).toHaveClass(/vintage-mode/);
+  await expect(page.getByTitle('Current Theme: Vintage')).toBeVisible();
+  expect(await page.evaluate(async () => (await chrome.storage.local.get(['theme'])).theme)).toBe('vintage');
+  // Wraps back around to the first theme
+  await page.getByTitle('Current Theme: Vintage').click();
+  await expect(page.locator('body')).toHaveClass(/light-mode/);
+});

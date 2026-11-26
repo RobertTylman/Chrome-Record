@@ -1,3 +1,7 @@
+/* Vintage theme: a wide 80s hi-fi face (Audiowide) for the title and tabs, and segment-style
+   digits for the display */
+@import url('https://fonts.googleapis.com/css2?family=Audiowide&family=Share+Tech+Mono&display=swap');
+
 * {
   margin: 0;
   padding: 0;
@@ -350,7 +354,7 @@ select:focus-visible,
 }
 
 /* Dark (Hellfire): Warping/Flickering */
-body:not(.light-mode):not(.midnight-mode):not(.forest-mode):not(.rainbow-mode) .app-title:hover span {
+body:not(.light-mode):not(.midnight-mode):not(.forest-mode):not(.rainbow-mode):not(.vintage-mode) .app-title:hover span {
   animation: hellfire-warp 0.4s ease-in-out infinite;
   animation-delay: calc(var(--index) * -0.05s);
   color: #ff4d00;
@@ -1552,4 +1556,307 @@ body:not(.light-mode):not(.midnight-mode):not(.forest-mode):not(.rainbow-mode) .
 .download-all-button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* =====================================================================
+   Vintage: a 1970s-80s portable tape recorder. Brushed-aluminium body,
+   black faceplate, backlit meter window, amber display and piano-key
+   transport buttons.
+   ===================================================================== */
+body.vintage-mode {
+  --bg-primary: #cfcfcb;
+  --bg-secondary: #e4e1d8;
+  --bg-hover: rgba(0, 0, 0, 0.08);
+  --text-primary: #1d1d1b;
+  --text-secondary: #5a5852;
+  --border-color: #9c9a93;
+  --bg-input: rgba(0, 0, 0, 0.06);
+  --toggle-active: #e8590c;
+  --accent: #e8590c;
+  --latest-marker: #e8590c;
+  /* Graphite trim handles, matching the transport keys */
+  --trim: #4a4946;
+  --trim-contrast: #ecebe6;
+  --trim-shade: rgba(43, 30, 16, 0.45);
+  --vintage-key: linear-gradient(180deg, #4b4b48 0%, #2c2c2a 100%);
+  /* Worn screen print on the title: fine noise thresholded into small specks where the paint has
+     rubbed off */
+  --vintage-print-wear: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='60'%3E%3Cfilter id='w' x='0' y='0' width='100%25' height='100%25'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='2' seed='7' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 -9 6.3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23w)'/%3E%3C/svg%3E");
+  /* Handling wear on the aluminium: a soft, uneven patina and a few fine pale scratches */
+  --vintage-patina: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='400'%3E%3Cfilter id='p' x='0' y='0' width='100%25' height='100%25'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.012' numOctaves='3' seed='11' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.2 0 0 0 0 0.18 0 0 0 0 0.12 0 0 0 0.3 -0.11'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23p)'/%3E%3C/svg%3E");
+  --vintage-scratches: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='s' x='0' y='0' width='100%25' height='100%25'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.01 0.45' numOctaves='2' seed='5' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 3 -2.05'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23s)'/%3E%3C/svg%3E");
+  --vintage-key-text: #e9e7e1;
+  --vintage-display: #ffb000;
+  background:
+    var(--vintage-scratches),
+    var(--vintage-patina),
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.05) 0 1px, transparent 1px 3px),
+    linear-gradient(180deg, #dcdcd8 0%, #c2c2bd 100%);
+}
+
+body.vintage-mode .popup-container {
+  background: transparent;
+}
+
+/* Header and footer are part of the same aluminium body, set off by engraved lines (a dark
+   groove with a highlight beneath) */
+body.vintage-mode .header {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.28);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+
+/* Model badge: wide 80s capitals with a forward slant, screen printed and worn in places */
+body.vintage-mode .app-title {
+  font-family: 'Audiowide', 'Eurostile', 'Arial Black', sans-serif;
+  color: #262522;
+  font-size: 16px;
+  font-weight: 400;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  transform: skewX(-8deg);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.55);
+  -webkit-mask-image: var(--vintage-print-wear);
+  mask-image: var(--vintage-print-wear);
+}
+
+/* Tabs read like the printed labels above a recorder's keys */
+body.vintage-mode .tab {
+  font-family: 'Audiowide', 'Eurostile', 'Arial Black', sans-serif;
+  font-size: 10.5px;
+  font-weight: 400;
+  letter-spacing: 0.8px;
+  white-space: nowrap;
+  padding: 0 var(--space-1);
+  text-transform: uppercase;
+  color: #6a675f;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+body.vintage-mode .tab:hover,
+body.vintage-mode .tab.active {
+  color: #1d1d1b;
+}
+
+body.vintage-mode .tab.active::after {
+  background-color: var(--accent);
+  height: 3px;
+}
+
+body.vintage-mode .recording-indicator {
+  background-color: #ff2a1a;
+  box-shadow: 0 0 6px #ff2a1a;
+}
+
+/* Backlit meter window */
+body.vintage-mode .waveform-container {
+  border: 2px solid #2a2a28;
+  border-radius: 6px;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+body.vintage-mode .waveform-container::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 4;
+  /* Glass sheen and a soft vignette around the edges of the window */
+  background: linear-gradient(170deg, rgba(255, 255, 255, 0.28) 0%, rgba(255, 255, 255, 0) 38%);
+  box-shadow: inset 0 0 18px rgba(80, 50, 10, 0.45);
+}
+
+/* Amber segment display */
+body.vintage-mode .time-readout {
+  background-color: #141413;
+  border: 2px solid #2a2a28;
+  border-radius: 6px;
+  box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.8), 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+/* Glass in front of the display catching a light source at the upper left: a soft hotspot and a
+   faint diagonal reflection, over the digits like real glass */
+body.vintage-mode .time-readout {
+  position: relative;
+  overflow: hidden;
+}
+
+body.vintage-mode .time-readout::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background:
+    radial-gradient(ellipse 55% 120% at 12% -20%, rgba(255, 255, 255, 0.16) 0%, rgba(255, 255, 255, 0) 70%),
+    linear-gradient(112deg, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0) 52%, rgba(255, 255, 255, 0.07) 52.5%, rgba(255, 255, 255, 0.025) 68%, rgba(255, 255, 255, 0) 68.5%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0) 45%);
+}
+
+body.vintage-mode .time-readout-label {
+  color: #8d8a80;
+  letter-spacing: 1.2px;
+}
+
+body.vintage-mode .time-readout-value,
+body.vintage-mode .time-readout-main {
+  font-family: 'Share Tech Mono', 'Courier New', monospace;
+  color: var(--vintage-display);
+  text-shadow: 0 0 6px rgba(255, 176, 0, 0.55);
+}
+
+body.vintage-mode .time-readout-main {
+  font-size: 24px;
+  letter-spacing: 1px;
+}
+
+body.vintage-mode .recording-notice {
+  color: #b23a0a;
+  font-weight: 600;
+}
+
+/* Piano-key transport buttons. Each key has a body below its top face (stepped shadows, darker
+   toward the base) and sits raised; pressing it travels down almost the full depth into a shaded
+   well. The latched Play key stays down while playing, like a real tape deck. */
+body.vintage-mode {
+  --key-rest: translateY(-3px);
+  --key-down: translateY(4px);
+  --key-body:
+    0 1px 0 #3c3c39, 0 2px 0 #353532, 0 3px 0 #2f2f2c, 0 4px 0 #292926,
+    0 5px 0 #232321, 0 6px 0 #1d1d1b, 0 7px 0 #171716;
+  --key-shadow: 0 10px 12px rgba(0, 0, 0, 0.42), 0 3px 4px rgba(0, 0, 0, 0.25);
+  --key-bevel: inset 0 1px 0 rgba(255, 255, 255, 0.28), inset 0 -2px 0 rgba(0, 0, 0, 0.35), inset 1px 0 0 rgba(255, 255, 255, 0.06), inset -1px 0 0 rgba(0, 0, 0, 0.25);
+  --key-pressed:
+    inset 0 3px 5px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(0, 0, 0, 0.5),
+    0 1px 0 #1d1d1b, 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+
+body.vintage-mode .transport-controls .control-button,
+body.vintage-mode .zoom-controls .control-button {
+  background: var(--vintage-key);
+  color: var(--vintage-key-text);
+  border-radius: 4px;
+  transform: var(--key-rest);
+  box-shadow: var(--key-bevel), var(--key-body), var(--key-shadow);
+  transition: transform 0.07s ease-out, box-shadow 0.07s ease-out, filter 0.15s, background 0.07s;
+}
+
+body.vintage-mode .transport-controls .control-button:hover,
+body.vintage-mode .zoom-controls .control-button:hover {
+  filter: brightness(1.15);
+}
+
+body.vintage-mode .transport-controls .control-button:active,
+body.vintage-mode .zoom-controls .control-button:active,
+body.vintage-mode .transport-controls .control-button.active,
+body.vintage-mode .play-button.playing {
+  transform: var(--key-down);
+  background: linear-gradient(180deg, #2e2e2c 0%, #3a3a37 100%);
+  box-shadow: var(--key-pressed);
+}
+
+/* Disabled keys stay solid (a real key doesn't turn see-through); only the symbol dims */
+body.vintage-mode .transport-controls .control-button:disabled,
+body.vintage-mode .zoom-controls .control-button:disabled {
+  opacity: 1;
+  filter: none;
+}
+
+body.vintage-mode .transport-controls .control-button:disabled svg,
+body.vintage-mode .zoom-controls .control-button:disabled svg {
+  opacity: 0.3;
+}
+
+/* Smaller zoom keys are shallower */
+body.vintage-mode .zoom-controls .control-button {
+  --key-rest: translateY(-2px);
+  --key-down: translateY(3px);
+  --key-body: 0 1px 0 #353532, 0 2px 0 #2c2c2a, 0 3px 0 #232321, 0 4px 0 #1b1b1a, 0 5px 0 #151514;
+  --key-shadow: 0 7px 8px rgba(0, 0, 0, 0.38);
+}
+
+body.vintage-mode .transport-controls .control-button.active {
+  color: var(--accent);
+}
+
+body.vintage-mode .control-button.transport-side {
+  width: 44px;
+  height: 36px;
+}
+
+body.vintage-mode .play-button {
+  width: 56px;
+  height: 40px;
+}
+
+/* A latched key glows */
+body.vintage-mode .play-button.playing {
+  color: #9dff6b;
+}
+
+body.vintage-mode .zoom-controls .control-button.small {
+  width: 26px;
+  height: 24px;
+}
+
+body.vintage-mode .zoom-controls {
+  gap: 4px;
+}
+
+body.vintage-mode .zoom-level {
+  font-family: 'Share Tech Mono', 'Courier New', monospace;
+  color: var(--text-primary);
+}
+
+/* Big red record button in a chrome ring */
+body.vintage-mode .record-button {
+  border: none;
+  background: radial-gradient(circle at 35% 30%, #ff6a5a 0%, #d0160f 55%, #8e0b07 100%);
+  /* Domed cap standing proud of a chrome ring */
+  box-shadow: 0 0 0 4px #d9d8d3, 0 0 0 5px #7d7c77, 0 6px 0 3px #6f0905, 0 10px 14px rgba(0, 0, 0, 0.45),
+    inset 0 -4px 6px rgba(0, 0, 0, 0.35), inset 0 3px 4px rgba(255, 255, 255, 0.35);
+  transform: translateY(-2px);
+  transition: transform 0.08s ease-out, box-shadow 0.08s ease-out, background 0.15s;
+  animation: none;
+}
+
+/* Pressed in: sinks into the ring, the cap darkens and its edge disappears */
+body.vintage-mode .record-button:active {
+  transform: translateY(3px) scale(0.97);
+  box-shadow: 0 0 0 4px #d9d8d3, 0 0 0 5px #7d7c77, 0 1px 0 2px #6f0905, 0 2px 4px rgba(0, 0, 0, 0.35),
+    inset 0 4px 8px rgba(0, 0, 0, 0.55);
+  animation: none;
+}
+
+body.vintage-mode .record-button:hover {
+  background: radial-gradient(circle at 35% 30%, #ff7d6e 0%, #e11c14 55%, #9c0c08 100%);
+  transform: translateY(-2px);
+}
+
+body.vintage-mode .record-button.recording {
+  animation: vintage-rec-lamp 1.4s ease-in-out infinite;
+}
+
+@keyframes vintage-rec-lamp {
+  0%, 100% { box-shadow: 0 0 0 4px #d9d8d3, 0 0 0 5px #7d7c77, 0 6px 0 3px #6f0905, 0 10px 14px rgba(0, 0, 0, 0.45), 0 0 0 0 rgba(255, 42, 26, 0.5), inset 0 -4px 6px rgba(0, 0, 0, 0.35), inset 0 3px 4px rgba(255, 255, 255, 0.35); }
+  50% { box-shadow: 0 0 0 4px #d9d8d3, 0 0 0 5px #7d7c77, 0 6px 0 3px #6f0905, 0 10px 14px rgba(0, 0, 0, 0.45), 0 0 18px 7px rgba(255, 42, 26, 0.45), inset 0 -4px 6px rgba(0, 0, 0, 0.35), inset 0 3px 4px rgba(255, 255, 255, 0.35); }
+}
+
+body.vintage-mode .record-button-inner,
+body.vintage-mode .stop-button-inner {
+  background-color: #f4f1ea;
+}
+
+/* Lists and settings sit on cream label stock */
+body.vintage-mode .recording-item {
+  background-color: #efe9dc;
+  border-bottom-color: #b9b4a6;
+}
+
+body.vintage-mode .recording-item:hover {
+  background-color: #f6f1e6;
+}
+
+body.vintage-mode .popup-footer {
+  border-top: 1px solid rgba(0, 0, 0, 0.28);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
 }
