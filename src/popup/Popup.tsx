@@ -97,6 +97,8 @@ const Popup: React.FC = () => {
   const pendingSeekRef = useRef<number | null>(null);
   currentRecordingIdRef.current = currentRecordingId;
   const playIntervalRef = useRef<number | null>(null);
+  // Set while this popup starts a recording, so the name it chose isn't replaced
+  const startedHereRef = useRef(false);
   const playheadAnimationFrameRef = useRef<number | null>(null);
 
   const {
@@ -316,16 +318,24 @@ const Popup: React.FC = () => {
     reloadRecording();
   }, [currentRecordingId, audioBlob, isRecording, loadedAudioDuration, setAudioBlob]);
 
+  // A recording started from this popup already has its name and start time (set when Record was
+  // clicked). When the popup reopens during a recording, take them from the recorder rather than
+  // the current time, so the recording isn't renamed after the moment the popup was reopened.
   useEffect(() => {
-    if (isRecording) {
-      const now = new Date();
-      setRecordingTimestamp(now);
-      if (!preferences.useTabTitle || !recordingName) {
-        setRecordingName(`recording ${formatDate(now)}`);
-      }
-      setStartTime(0);
-      setCurrentPlayTime(0);
+    if (!isRecording) return;
+    setStartTime(0);
+    setCurrentPlayTime(0);
+    if (startedHereRef.current) {
+      startedHereRef.current = false;
+      return;
     }
+    chrome.runtime.sendMessage({ type: 'GET_SESSION', target: 'offscreen' })
+      .then((session) => {
+        if (!session?.success) return;
+        if (session.name) setRecordingName(session.name);
+        if (session.startedAt) setRecordingTimestamp(new Date(session.startedAt));
+      })
+      .catch(() => { /* recorder not reachable; keep what was restored */ });
   }, [isRecording]);
 
   useEffect(() => {
@@ -392,7 +402,12 @@ const Popup: React.FC = () => {
             setCurrentPlayTime(0);
           });
 
-          audio.addEventListener('error', () => reportError('audio playback', audio.error?.message || `media error ${audio.error?.code}`));
+          // Clearing the player (src = '') when another recording loads or one starts fires an error
+          // event too; only report real playback failures
+          audio.addEventListener('error', () => {
+            if (!audio.getAttribute('src')) return;
+            reportError('audio playback', audio.error?.message || `media error ${audio.error?.code}`);
+          });
           audio.load();
           setCurrentPlayTime(0);
           setStartTime(0);
@@ -465,10 +480,13 @@ const Popup: React.FC = () => {
         if (cleanedTitle) name = cleanedTitle;
       }
       setRecordingName(name);
+      setRecordingTimestamp(new Date());
 
       try {
+        startedHereRef.current = true;
         await startRecording({ name, channelMode: preferences.channelMode || 'stereo' });
       } catch (error: any) {
+        startedHereRef.current = false;
         reportError('start recording', error);
         showNotice(`Recording failed to start: ${errorText(error)}`);
         return;

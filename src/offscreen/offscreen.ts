@@ -66,6 +66,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  // The popup asks when it reopens during a recording, to show the recording's own name and start
+  if (message.type === 'GET_SESSION') {
+    sendResponse(session
+      ? { success: true, name: session.details.name, startedAt: session.startedAt }
+      : { success: false });
+    return;
+  }
+
   if (message.type === 'PAUSE_RECORDING' || message.type === 'RESUME_RECORDING') {
     const pause = message.type === 'PAUSE_RECORDING';
     if (session && !session.stopping) {
